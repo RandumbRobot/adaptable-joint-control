@@ -1,0 +1,18 @@
+//STM32
+**/examples/*.cyclo
+**/examples/*.xml
+**/examples/*.prefs
+
+//STM32 Generated Code
+**/examples/**/Drivers
+**/examples/**/Debug
+//**/examples/**/Core
+
+//Build and debug files
+Makefile
+Makefile.in
+*.mk
+*.o
+*.su
+*.d
+*.launch
