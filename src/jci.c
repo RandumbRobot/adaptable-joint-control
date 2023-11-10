@@ -1,11 +1,45 @@
+/*
+BSD 3-Clause License
 
+Copyright (c) 2023, Jacoby Roy
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 #include "jci.h"
 
 
 #define MAX_PSIZE       256
-#define JCI_START_CHAR      'S'
 #define HEADER_SIZE_B       3       //Header size in bytes
+
+//Transaction types
+#define NEW_JOINT_DATA  'S'     //New joint data transaction
+#define CONT_JOINT_DATA 'C'     //Continue joint data transaction
+#define REQUEST_JOINT   'R'     //Request joint IDs and types
+#define SEND_JOINT      'A'     //Send joint IDs and types
 
 //Header masks
 #define CHECKSUM_EN_MASK    0b1 
@@ -47,13 +81,37 @@ int jci_sendJointData(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* pack
   * 
   * @param  jci         Pointer to struct containing the information about the packet to send.
   * @param  data        Pointer to joint control data
-  * @param  id_list     Pointer to list of IDs to use if grain control is enabled.
+  * @param  id_list     Pointer to list of IDs.
+  *                     - Used if granular control is enabled OR
+  *                     - Used if sending list of IDs upon request.
   * @param  packet      Pointer to buffer where to store the constructed packet.
   * 
   * @retval packet size in bytes
   */
 uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet){
 
+
+    switch (jci->TRANS)
+    {
+    case NEW_JOINT_DATA:
+        /* code */
+        break;
+    
+    case CONT_JOINT_DATA:
+        /* code */
+        break;
+    
+    case REQUEST_JOINT:
+        /* code */
+        break;
+    
+    case SEND_JOINT:
+        /* code */
+        break;
+    
+    default:
+        break;
+    }
     //Packet data
     //Copy data
     memcpy(packet + HEADER_SIZE_B, data, jci->PSIZE * (1+jci->PTYPE));

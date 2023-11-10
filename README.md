@@ -47,3 +47,27 @@ The two boards communicate together through an inter-face which will either be B
 The high-level architecture can be seen below:
 
 ![joystick-control-arch](images/joystick-control.png)
+
+
+
+## Contributors
+
+The list of contributors
+### Standard Joint Control Interface
+-Jacoby Roy
+
+
+### Examples
+
+#### 1-joystick-control
+-Theodore Glavas
+-Nardo Jean-Gilles
+-Jacoby Roy
+-Yongde Yu
+
+
+## Licensing
+
+The licensing of each file is indicated inside them. In the case where the file doesn't contain any license, it is licensed under the repository license.
+
+
