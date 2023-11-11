@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "jci.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +49,9 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
+void jci_test_u8(void);
+void jci_test_u16(void);
 
 /* USER CODE END PFP */
 
@@ -84,6 +88,10 @@ int main(void)
 
   /* Initialize all configured peripherals */
   /* USER CODE BEGIN 2 */
+
+
+  jci_test_u8();
+  jci_test_u16();
 
   /* USER CODE END 2 */
 
@@ -149,6 +157,302 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+
+void jci_test_u16(void){
+
+	//Every test uses 4 values
+	uint16_t txdata_u16[] = {
+		  0,
+		  100,
+		  1420,
+		  10769
+	};
+	uint16_t rxdata_u16[sizeof(txdata_u16)/sizeof(uint16_t)] = {0};
+
+
+	char txid[] = {
+		  '0',
+		  '1',
+		  'r',
+		  'o'
+	};
+	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
+
+
+	//Result variables
+	uint32_t txpacketsize = 0;
+	int rxpacketsize = 0;
+
+	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
+	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+
+	/*
+	 * WITHOUT CHECKSUM
+	 * WITHOUT GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_t jci_tx = {
+		  .TRANS = 'S',
+		  .CHECKSUM_EN = 0,
+		  .GRAN = 0,
+		  .PTYPE = 1,
+		  .PSIZE = 4
+	};
+	jci_t jci_rx;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u16[0] = 3;
+	txdata_u16[1] = 10036;
+	txdata_u16[2] = 9000;
+	txdata_u16[3] = 55;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u16[0] = 10;
+	txdata_u16[1] = 12688;
+	txdata_u16[2] = 36822;
+	txdata_u16[3] = 201;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+
+	/*
+	 * WITH CHECKSUM
+	 * WITHOUT GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u16[0] = 0;
+	txdata_u16[1] = 8;
+	txdata_u16[2] = 100;
+	txdata_u16[3] = 200;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u16[0] = 30000;
+	txdata_u16[1] = 13610;
+	txdata_u16[2] = 9;
+	txdata_u16[3] = 559;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u16[0] = 109;
+	txdata_u16[1] = 12620;
+	txdata_u16[2] = 68;
+	txdata_u16[3] = 2012;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+	//********** TEST4 **********//
+	//Continue operation (second time, last operation was 'C')
+	//introduce error (checksum should fail)
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u16[0] = 119;
+	txdata_u16[1] = 8;
+	txdata_u16[2] = 10220;
+	txdata_u16[3] = 200;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
+	txpacket[5] = 0;
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+}
+
+
+void jci_test_u8(void){
+
+	//Every test uses 4 values
+	uint8_t txdata_u8[] = {
+		  0,
+		  8,
+		  100,
+		  200
+	};
+	uint8_t rxdata_u8[sizeof(txdata_u8)/sizeof(uint8_t)] = {0};
+
+	char txid[] = {
+		  '0',
+		  '1',
+		  'r',
+		  'o'
+	};
+	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
+
+	//Result variables
+	uint32_t txpacketsize = 0;
+	int rxpacketsize = 0;
+
+	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
+	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+
+	/*
+	 * WITHOUT CHECKSUM
+	 * WITHOUT GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_t jci_tx = {
+		  .TRANS = 'S',
+		  .CHECKSUM_EN = 0,
+		  .GRAN = 0,
+		  .PTYPE = 0,
+		  .PSIZE = 4
+	};
+	jci_t jci_rx;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u8[0] = 3;
+	txdata_u8[1] = 136;
+	txdata_u8[2] = 9;
+	txdata_u8[3] = 55;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u8[0] = 10;
+	txdata_u8[1] = 126;
+	txdata_u8[2] = 68;
+	txdata_u8[3] = 201;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+
+	/*
+	 * WITH CHECKSUM
+	 * WITHOUT GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u8[0] = 0;
+	txdata_u8[1] = 8;
+	txdata_u8[2] = 100;
+	txdata_u8[3] = 200;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u8[0] = 3;
+	txdata_u8[1] = 136;
+	txdata_u8[2] = 9;
+	txdata_u8[3] = 55;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u8[0] = 10;
+	txdata_u8[1] = 126;
+	txdata_u8[2] = 68;
+	txdata_u8[3] = 201;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+	//********** TEST4 **********//
+	//Continue operation (second time, last operation was 'C')
+	//introduce error (checksum should fail)
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u8[0] = 1;
+	txdata_u8[1] = 8;
+	txdata_u8[2] = 100;
+	txdata_u8[3] = 200;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	txpacket[5] = 0;
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+}
 
 /* USER CODE END 4 */
 

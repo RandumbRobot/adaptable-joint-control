@@ -30,6 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "jci.h"
+#include "string.h"
+
+
+
+const char jci_std_id_table[] = {
+    0, //Index joint
+    1, //Middle finger joint
+    2, //Annular joint
+    3  //Pinky joint
+};
 
 
 #define MAX_PSIZE       256
@@ -167,7 +177,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
     {
     case NEW_JOINT_DATA:
         //Calculate packet size
-        payload_size = jci->PSIZE*(1+jci->PTYPE)*(1+jci->GRAN);
+        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
         packet_size = HEADER_SIZE_B + payload_size + jci->CHECKSUM_EN;
 
         //Packet header
@@ -184,12 +194,13 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
                 checksum += packet[i];
             }
             packet[HEADER_SIZE_B + payload_size] = checksum;
+            jci->CHECKSUM = checksum;
         }
         break;
     
     case CONT_JOINT_DATA:
         //Calculate packet size
-        payload_size = jci->PSIZE*(1+jci->PTYPE)*(1+jci->GRAN);
+        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
         packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CHECKSUM_EN;
 
         //Packet header
@@ -206,6 +217,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
                 checksum += packet[i];
             }
             packet[(HEADER_SIZE_B - 2) + payload_size] = checksum;
+            jci->CHECKSUM = checksum;
         }
         break;
     
@@ -242,6 +254,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
                 checksum += packet[i];
             }
             packet[HEADER_SIZE_B + payload_size] = checksum;
+            jci->CHECKSUM = checksum;
         }
         break;
     
@@ -260,7 +273,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
   * 
   * @param data        Pointer to buffer to search a packet in.
   * @param size        Number of bytes to check .
-  * @param trans       Pointer to the transaction type that was found. A NULL character is given
+  * @param trans       Pointer to the transaction type that was found. A ' ' character is given
   *                     if nothing is found.
   * 
   * 
@@ -306,7 +319,7 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans){
         }
     }
 
-    *trans = NULL;
+    *trans = ' ';
 
     return addr;
 }
@@ -331,58 +344,42 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans){
 int jci_parsePacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet){
 
     int packet_size;
-    int err;
 
     packet_size = jci_parseHeader(jci, packet);
 
     if(packet_size >= 0){ //if no error
+
         //Checksum test passed, can copy data over.
-        //Copy data
-        memcpy(data, packet + HEADER_SIZE_B, jci->PSIZE * (1+jci->PTYPE));
-        //Copy IDs if grain control (0 bytes memcpy otherwise)
-        memcpy(id_list, packet + HEADER_SIZE_B + (jci->PSIZE*jci->GRAIN), jci->GRAIN*(jci->PSIZE * (1+jci->PTYPE)));
-    }
+        switch (jci->TRANS)
+        {
+        case NEW_JOINT_DATA:
+            //Copy data
+            memcpy(data, packet + HEADER_SIZE_B, jci->PSIZE * (1+jci->PTYPE));
+            //Copy IDs if grain control (0 bytes memcpy otherwise)
+            memcpy(id_list, packet + HEADER_SIZE_B + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
+            break;
 
+        case CONT_JOINT_DATA:
+            //Copy data
+            memcpy(data, packet + (HEADER_SIZE_B - 2), jci->PSIZE * (1+jci->PTYPE));
+            //Copy IDs if granular control (0 bytes memcpy otherwise)
+            memcpy(id_list, packet + (HEADER_SIZE_B - 2) + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
+            break;
 
+        case REQUEST_JOINT_ID:
+            //do nothing
+            break;
 
+        case SEND_JOINT_ID:
+            //Payload
+            //Copy joint IDs data
+            memcpy(id_list, packet + HEADER_SIZE_B, jci->PSIZE);
+            break;
 
-    //Checksum test passed, can copy data over.
-    switch (jci->TRANS)
-    {
-    case NEW_JOINT_DATA:
-        //Copy data
-        memcpy(data, packet + HEADER_SIZE_B, jci->PSIZE * (1+jci->PTYPE));
-        //Copy IDs if grain control (0 bytes memcpy otherwise)
-        memcpy(id_list, packet + HEADER_SIZE_B + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
-        break;
-    
-    case CONT_JOINT_DATA:
-        //Copy data
-        memcpy(data, packet + (HEADER_SIZE_B - 2), jci->PSIZE * (1+jci->PTYPE));
-        //Copy IDs if granular control (0 bytes memcpy otherwise)
-        memcpy(id_list, packet + (HEADER_SIZE_B - 2) + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
-        break;
-
-    case REQUEST_JOINT_ID:
-        //do nothing
-        break;
-    
-    case SEND_JOINT_ID:
-        //Payload
-        //Copy joint IDs data
-        memcpy(id_list, packet + HEADER_SIZE_B, jci->PSIZE);
-        break;
-    
-    default:
-        err = -1; //illegal transaction type
-        break;
-    }
-
-
-    if(err == 0){
-        packet_size = jci_parseHeader(jci, packet);
-    }else{
-        packet_size = 0;
+        default:
+            packet_size = -1; //illegal transaction type
+            break;
+        }
     }
 
     return packet_size;
@@ -430,12 +427,12 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
         //Packet header
         header = packet[1];
         jci->CHECKSUM_EN = header & CHECKSUM_EN_MASK;
-        jci->GRAN = header & GRAN_MASK;
-        jci->PTYPE = header & PTYPE_MASK;
+        jci->GRAN = (header & GRAN_MASK) >> 1;
+        jci->PTYPE = (header & PTYPE_MASK) >> 2;
         jci->PSIZE = packet[2];
 
         //Packet and payload sizes
-        payload_size = jci->PSIZE*(1+jci->PTYPE)*(1+jci->GRAN);
+        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
         packet_size = HEADER_SIZE_B + payload_size + jci->CHECKSUM_EN;
 
         //Packet checksum
@@ -469,7 +466,7 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
         }
 
         //Packet and payload sizes
-        payload_size = jci->PSIZE*(1+jci->PTYPE)*(1+jci->GRAN);
+        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
         packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CHECKSUM_EN;
 
 
@@ -516,8 +513,8 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
         //Packet header
         header = packet[1];
         jci->CHECKSUM_EN = header & CHECKSUM_EN_MASK;
-        jci->GRAN = header & GRAN_MASK;
-        jci->PTYPE = header & PTYPE_MASK;
+        jci->GRAN = 0; //unused
+        jci->PTYPE = (header & PTYPE_MASK) >> 2;
         jci->PSIZE = packet[2];
 
         //Packet and payload sizes

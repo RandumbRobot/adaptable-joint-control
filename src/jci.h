@@ -29,6 +29,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+
+#ifndef JCI_H_
+#define JCI_H_
+
 #include "stdint.h"
 
 
@@ -56,7 +60,7 @@ typedef struct{
     uint8_t PSIZE;
 
     //Payload
-    void* PAYLOAD; //UNUSED
+    //void* PAYLOAD; //UNUSED
 
     //Checksum
     uint8_t CHECKSUM;
@@ -81,9 +85,6 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet);
 /***** JCI STANDARD IDs *****/
 
 //Standard IDs
-const char jci_std_id_table[] = {
-    0, //Index joint
-    1, //Middle finger joint
-    2, //Annular joint
-    3  //Pinky joint
-};
+extern const char jci_std_id_table[];
+
+#endif //JCI_H_
