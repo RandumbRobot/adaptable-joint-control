@@ -69,7 +69,7 @@ uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* p
 uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet);
 
 //RX
-uint8_t* jci_findPacket(uint8_t* data, uint32_t size);
+uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans);
 int jci_parsePacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet);
 int jci_parseHeader(jci_t* jci, uint8_t* packet);
 
