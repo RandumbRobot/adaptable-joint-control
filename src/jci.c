@@ -128,6 +128,7 @@ uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* p
     
     case SEND_JOINT_ID:
         //Payload
+    	jci->PSIZE = jci->PSIZE*jci->PTYPE; //force correct PSIZE for TX
         //Copy joint IDs data
         memcpy(packet + HEADER_SIZE_B, id_list, jci->PSIZE);
         break;
@@ -528,7 +529,7 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
 
             //Calculate checksum
             checksum = 0;
-            for (int i = 0 ; i < (HEADER_SIZE_B + payload_size) ; i++) 
+            for (int i = 0 ; i < (HEADER_SIZE_B + payload_size) ; i++)
             {
                 checksum += packet[i];
             }

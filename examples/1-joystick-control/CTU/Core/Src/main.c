@@ -41,6 +41,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+UART_HandleTypeDef huart4;
 
 /* USER CODE BEGIN PV */
 
@@ -48,10 +49,13 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
 
 void jci_test_u8(void);
 void jci_test_u16(void);
+void jci_test_misc(void);
 
 /* USER CODE END PFP */
 
@@ -87,11 +91,14 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
 
   jci_test_u8();
   jci_test_u16();
+  jci_test_misc();
 
   /* USER CODE END 2 */
 
@@ -156,7 +163,217 @@ void SystemClock_Config(void)
   }
 }
 
+/**
+  * @brief UART4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_UART4_Init(void)
+{
+
+  /* USER CODE BEGIN UART4_Init 0 */
+
+  /* USER CODE END UART4_Init 0 */
+
+  /* USER CODE BEGIN UART4_Init 1 */
+
+  /* USER CODE END UART4_Init 1 */
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 115200;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart4.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart4, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart4, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN UART4_Init 2 */
+
+  /* USER CODE END UART4_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
+}
+
 /* USER CODE BEGIN 4 */
+
+
+void jci_test_misc(void){
+
+	//Every test uses 4 values
+	char txid[] = {
+		  '0',
+		  '1',
+		  'r',
+		  'o'
+	};
+	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
+
+
+	//Result variables
+	uint32_t txpacketsize = 0;
+	int rxpacketsize = 0;
+
+	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
+	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+
+	//********** TEST1 **********//
+	//IDs request
+	jci_t jci_tx = {
+		  .TRANS = 'R',
+	};
+	jci_t jci_rx;
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, NULL, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+	/*
+	 * WITH CUSTOM PTYPE
+	 * WITHOUT CHECKSUM
+	 */
+
+	//********** TEST1 **********//
+	//IDs sent
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 0;
+	jci_tx.PTYPE = 1;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+
+	/*
+	 * WITH CUSTOM PTYPE
+	 * WITH CHECKSUM
+	 */
+
+	//********** TEST1 **********//
+	//IDs sent
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.PTYPE = 1;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+	//********** TEST2 **********//
+	//IDs sent
+	//introduce error (checksum will fail)
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.PTYPE = 1;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	txpacket[5] = ' ';
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+
+
+
+	/*
+	 * WITH STANDARD PTYPE
+	 * WITHOUT CHECKSUM
+	 */
+
+	//********** TEST1 **********//
+	//IDs sent
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 0;
+	jci_tx.PTYPE = 0;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+
+	/*
+	 * WITH STANDARD PTYPE
+	 * WITH CHECKSUM
+	 */
+
+	//********** TEST1 **********//
+	//IDs sent
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.PTYPE = 0;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+
+
+	//********** TEST2 **********//
+	//IDs sent
+	//introduce error (checksum will fail)
+	jci_tx.TRANS = 'A';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.PTYPE = 0;
+	jci_tx.PSIZE = 4;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+	txpacket[3] = ' ';
+	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+}
 
 
 void jci_test_u16(void){
@@ -305,6 +522,87 @@ void jci_test_u16(void){
 	txpacket[5] = 0;
 	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
 
+
+
+	/*
+	 * WITH CHECKSUM
+	 * WITH GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.GRAN = 1;
+
+	//new data
+	txdata_u16[0] = 0;
+	txdata_u16[1] = 8;
+	txdata_u16[2] = 100;
+	txdata_u16[3] = 200;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u16[0] = 30000;
+	txdata_u16[1] = 13610;
+	txdata_u16[2] = 9;
+	txdata_u16[3] = 559;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u16[0] = 109;
+	txdata_u16[1] = 12620;
+	txdata_u16[2] = 68;
+	txdata_u16[3] = 2012;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
+
+
+	//********** TEST4 **********//
+	//Continue operation (second time, last operation was 'C')
+	//introduce error (checksum should fail)
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u16[0] = 119;
+	txdata_u16[1] = 8;
+	txdata_u16[2] = 10220;
+	txdata_u16[3] = 200;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
+	txpacket[5] = 0;
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+
 }
 
 
@@ -449,6 +747,89 @@ void jci_test_u8(void){
 	txdata_u8[3] = 200;
 
 	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
+	txpacket[5] = 0;
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+
+
+	/*
+	 * WITH CHECKSUM
+	 * WITH GRANULAR CONTROL
+	 */
+
+	//********** TEST1 **********//
+	//New joint data
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+	jci_tx.GRAN = 1;
+
+	//new data
+	txdata_u8[0] = 0;
+	txdata_u8[1] = 8;
+	txdata_u8[2] = 100;
+	txdata_u8[3] = 200;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+	//********** TEST2 **********//
+	//Continue operation (first time, last operation was 'S')
+	//Need to reuse the same jci_rx for the continue operation.
+	jci_tx.TRANS = 'C';
+
+	//new data
+	txdata_u8[0] = 3;
+	txdata_u8[1] = 136;
+	txdata_u8[2] = 9;
+	txdata_u8[3] = 55;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+	//********** TEST3 **********//
+	//Continue operation (second time, last operation was 'C')
+	//Need to reuse the same jci_rx for the continue operation.
+
+	//new data
+	txdata_u8[0] = 10;
+	txdata_u8[1] = 126;
+	txdata_u8[2] = 68;
+	txdata_u8[3] = 201;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
+	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
+
+
+
+	//********** TEST4 **********//
+	//Continue operation (second time, last operation was 'C')
+	//introduce error (checksum should fail)
+	jci_tx.TRANS = 'S';
+	jci_tx.CHECKSUM_EN = 1;
+
+	//new data
+	txdata_u8[0] = 1;
+	txdata_u8[1] = 8;
+	txdata_u8[2] = 100;
+	txdata_u8[3] = 200;
+
+	//reset rx IDs
+	memset(rxid, 0, sizeof(txid)/sizeof(char));
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
 	txpacket[5] = 0;
 	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
 
