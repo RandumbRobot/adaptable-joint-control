@@ -26,6 +26,9 @@
 /* USER CODE BEGIN Includes */
 
 #include "jci.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -53,6 +56,17 @@
 #define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
 uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
 
+volatile bool new_data = false;
+#define SERVO_COUNT 4
+uint8_t servo_Ids[SERVO_COUNT] = {1,2,3,4}; //TODO: change IDS
+TIM_HandleTypeDef* tim_ids[SERVO_COUNT] = {&htim2,&htim2,&htim2,&htim3};
+//TODO: This is the wrong datatype but i don't know what to use
+uint32_t tim_channels[SERVO_COUNT] = {TIM_CHANNEL_1,TIM_CHANNEL_3,TIM_CHANNEL_4,TIM_CHANNEL_1};
+#define MIN_SERVO_POSITION  30 //should be 50 using spec sheet, but 30 is closer to the true value when testing
+#define MAX_SERVO_POSITION 125
+volatile uint16_t servo_positions[SERVO_COUNT] = {50,50,50,50}; //50 is defined as default position, can be changed
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,6 +77,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 
 /* USER CODE END 0 */
 
@@ -97,6 +112,7 @@ int main(void)
   MX_TIM2_Init();
   MX_UART4_Init();
   MX_USART1_UART_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -105,6 +121,8 @@ int main(void)
   //Servo PWM timers
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
 
   //RX
@@ -121,19 +139,18 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+	//wait for new data
+	while(!new_data){
+		//wait
+	}
+	new_data = false;
 
-
-	  int x;
-	  int y;
-	  for(x=30; x<125;x++){
-		  y = 125+30-x;
-		  __HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_1,x);
-		  __HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_3,y);
-		  //HAL_Delay(50);
-		  if(x==30){
-			  //HAL_Delay(1000);
-		  }
-	  }
+	//Loop through servos and update values
+	for(int i=0;i<SERVO_COUNT;i++){
+		if(__HAL_TIM_GET_COMPARE(tim_ids[i],tim_channels[i]) != servo_positions[i]){
+			__HAL_TIM_SET_COMPARE(tim_ids[i],tim_channels[i],servo_positions[i]);
+		}
+	}
   }
   /* USER CODE END 3 */
 }
@@ -225,7 +242,21 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 				PRINT(buffer);
 			}
 
+			//Set servo values
+			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+
+				for(int j=0; j<SERVO_COUNT; j++){
+					if(rxid[i]==servo_Ids[j]){
+						servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)((float)rxdata[i]*(255.0/(MAX_SERVO_POSITION-MIN_SERVO_POSITION))); //scale between min and max
+					}
+				}
+
+			}
+			new_data = true; //flag main process
+
 		}
+
+
 
 		//Wait for next packet
 		HAL_UARTEx_ReceiveToIdle_IT(&huart4, packet, MAX_JCI_PACKET_SIZE);
