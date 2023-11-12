@@ -68,6 +68,6 @@ The list of contributors
 
 ## Licensing
 
-The licensing of each file is indicated inside them. In the case where the file doesn't contain any license, it is licensed under the repository license.
+The licensing of each file is indicated inside them. The STM32 files are licensed under the STM32 license. In the case where the file doesn't contain any license, it is licensed under the repository license.
 
 

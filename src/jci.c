@@ -281,7 +281,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
   * @retval If the packet is found, it returns the address of the start of the packet. 
   *         Otherwise, it simply returns the same address as data.
   */
-uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans){
+uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
 
     uint8_t currchar;
     uint8_t* addr;
@@ -289,7 +289,10 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans){
     //initialize the return value
     addr = data;
 
-    for(int i = size ; i < (size - 2) ; i++){
+    //not found be default
+    *trans = ' ';
+
+    for(int i = 0 ; i < (size - 2) ; i++){
 
         currchar = data[i];
         if( (currchar == NEW_JOINT_DATA) ||
@@ -319,8 +322,6 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, uint8_t* trans){
             break;
         }
     }
-
-    *trans = ' ';
 
     return addr;
 }

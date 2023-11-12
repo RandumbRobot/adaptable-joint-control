@@ -18,9 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include "jci.h"
 
 /* USER CODE END Includes */
 
@@ -32,6 +37,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define PRINT(s) HAL_UART_Transmit(&huart1, s, strlen(s), HAL_MAX_DELAY)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,16 +47,16 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
+
+#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -88,9 +95,20 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
+  MX_UART4_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+
+
+  PRINT("SDU Init\r\n");
+
+  //Servo PWM timers
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+
+
+  //RX
+  HAL_UARTEx_ReceiveToIdle_IT(&huart4, packet, MAX_JCI_PACKET_SIZE);
 
 
   /* USER CODE END 2 */
@@ -110,10 +128,10 @@ int main(void)
 	  for(x=30; x<125;x++){
 		  y = 125+30-x;
 		  __HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_1,x);
-		  __HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_2,y);
-		  HAL_Delay(50);
+		  __HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_3,y);
+		  //HAL_Delay(50);
 		  if(x==30){
-			  HAL_Delay(1000);
+			  //HAL_Delay(1000);
 		  }
 	  }
   }
@@ -170,87 +188,52 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 2400;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 999;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 50;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
+
+
+
+volatile jci_t jci_rx;
+uint8_t rxdata[MAX_JCI_PACKET_SIZE] = {0};
+uint8_t rxid[MAX_JCI_PACKET_SIZE] = {0};
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
+
+	if(huart == &huart4){
+
+		char trans = ' ';
+		uint8_t* addr;
+
+		char buffer[256];
+		int rxpacketsize = 0;
+
+		//Parse current packet
+		addr = jci_findPacket(packet, Size, &trans);
+		if(trans != ' '){
+			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, packet + (addr - packet));
+
+			  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
+					"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
+							jci_rx.TRANS,
+							jci_rx.CHECKSUM_EN,
+							jci_rx.GRAN,
+							jci_rx.PTYPE,
+							rxpacketsize);
+			PRINT(buffer);
+			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+				sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
+				PRINT(buffer);
+			}
+
+		}
+
+		//Wait for next packet
+		HAL_UARTEx_ReceiveToIdle_IT(&huart4, packet, MAX_JCI_PACKET_SIZE);
+
+	}
+
+}
+
+
+
 
 /* USER CODE END 4 */
 

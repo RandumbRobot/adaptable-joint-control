@@ -33,6 +33,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define PRINT(s) HAL_UART_Transmit(&huart1, s, strlen(s), HAL_MAX_DELAY)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,6 +44,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart4;
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
@@ -51,6 +54,7 @@ UART_HandleTypeDef huart4;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_UART4_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 void jci_test_u8(void);
@@ -93,6 +97,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_UART4_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -100,12 +105,84 @@ int main(void)
   jci_test_u16();
   jci_test_misc();
 
+
+
+
+  PRINT("CTU init\r\n");
+
+	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+    uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
+
+	jci_t jci_tx = {
+			.TRANS = 'S',
+			.CHECKSUM_EN = 1,
+			.GRAN = 1,
+			.PTYPE = 0,
+			.PSIZE = 4
+	};
+
+	uint8_t txdata[4] = {
+			4,
+			5,
+			90,
+			156
+	};
+	uint8_t txid[4] = {
+			'0',
+			'1',
+			'y',
+			'p'
+	};
+	int txpacketsize = 0;
+
+	txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
+
+	char buffer[256];
+	sprintf(buffer, "Packet info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
+			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
+					jci_tx.TRANS,
+					jci_tx.CHECKSUM_EN,
+					jci_tx.GRAN,
+					jci_tx.PTYPE,
+					txpacketsize);
+
+	PRINT(buffer);
+
+	HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
+
+	//TODO add check to make sure the other board received the 'S' packet
+	//jci_tx.TRANS= 'C'; currently bugged out
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+
+	  HAL_Delay(100);
+
+	  txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
+
+	  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
+			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
+					jci_tx.TRANS,
+					jci_tx.CHECKSUM_EN,
+					jci_tx.GRAN,
+					jci_tx.PTYPE,
+					txpacketsize);
+	  PRINT(buffer);
+	  for(int i = 0 ; i < jci_tx.PSIZE ; i++){
+		  sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, txid[i], txdata[i]);
+		  PRINT(buffer);
+
+		  //update data for next time
+		  txdata[i] *= 3;
+	  }
+
+	  HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -212,6 +289,54 @@ static void MX_UART4_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -223,12 +348,15 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+
 
 
 void jci_test_misc(void){
