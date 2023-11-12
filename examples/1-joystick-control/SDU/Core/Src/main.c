@@ -192,6 +192,8 @@ void SystemClock_Config(void)
 
 
 
+
+
 volatile jci_t jci_rx;
 uint8_t rxdata[MAX_JCI_PACKET_SIZE] = {0};
 uint8_t rxid[MAX_JCI_PACKET_SIZE] = {0};

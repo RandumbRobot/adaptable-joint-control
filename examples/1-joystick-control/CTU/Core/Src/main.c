@@ -151,7 +151,7 @@ int main(void)
 	HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
 
 	//TODO add check to make sure the other board received the 'S' packet
-	//jci_tx.TRANS= 'C'; currently bugged out
+	jci_tx.TRANS= 'C';
 
   /* USER CODE END 2 */
 

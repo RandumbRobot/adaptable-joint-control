@@ -296,7 +296,6 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
 
         currchar = data[i];
         if( (currchar == NEW_JOINT_DATA) ||
-            (currchar == CONT_JOINT_DATA) ||
             (currchar == SEND_JOINT_ID)){
 
             //Check if header data is valid
@@ -315,6 +314,15 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
             if(data[i+1] != 'E'){
                 continue;
             }
+
+            *trans = currchar;
+
+            addr = data + i;
+            break;
+        }
+        else if(currchar == CONT_JOINT_DATA){
+
+        	//cannot partially validate, checksum recommended
 
             *trans = currchar;
 
