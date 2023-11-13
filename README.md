@@ -61,7 +61,7 @@ The list of contributors
 
 #### 1-joystick-control
 -Theodore Glavas
--Nardo Jean-Gilles
+-Nardo Edward Jean Gilles
 -Jacoby Roy
 -Yongde Yu
 
