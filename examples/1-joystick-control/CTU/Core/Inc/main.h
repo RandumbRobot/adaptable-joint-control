@@ -57,6 +57,14 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define JOY2_Y_Pin GPIO_PIN_2
+#define JOY2_Y_GPIO_Port GPIOC
+#define JOY2_X_Pin GPIO_PIN_3
+#define JOY2_X_GPIO_Port GPIOC
+#define JOY1_Y_Pin GPIO_PIN_4
+#define JOY1_Y_GPIO_Port GPIOC
+#define JOY1_X_Pin GPIO_PIN_5
+#define JOY1_X_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 
