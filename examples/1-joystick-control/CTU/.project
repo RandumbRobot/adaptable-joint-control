@@ -31,9 +31,9 @@
 	</natures>
 	<linkedResources>
 		<link>
-			<name>src</name>
+			<name>jci-lib</name>
 			<type>2</type>
-			<location>C:/Users/Nardz/STM32CubeIDE/School_Workspace/adaptable-joint-control/src</location>
+			<location>C:/Users/Jacoby/Desktop/Github/adaptable-joint-control/src</location>
 		</link>
 	</linkedResources>
 </projectDescription>

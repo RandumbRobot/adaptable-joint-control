@@ -164,7 +164,7 @@ int main(void)
 	HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
 
 	//TODO add check to make sure the other board received the 'S' packet
-	jci_tx.TRANS= 'C';
+	//jci_tx.TRANS= 'C';
 
   /* USER CODE END 2 */
 
@@ -176,7 +176,8 @@ int main(void)
 
 	  HAL_Delay(200);
 
-	  txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
+	  //txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
+	  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, packet);
 
 	  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
 			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
@@ -186,6 +187,8 @@ int main(void)
 					jci_tx.PTYPE,
 					txpacketsize);
 	  PRINT(buffer);
+
+	  /*
 	  for(int i = 0 ; i < jci_tx.PSIZE ; i++){
 		  sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, txid[i], txdata[i]);
 		  PRINT(buffer);
@@ -193,8 +196,9 @@ int main(void)
 		  //update data for next time
 		  txdata[i] *= 3;
 	  }
+	  */
 
-	  //HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
 
 	  //get joystick values
 	  jci_getPot();
