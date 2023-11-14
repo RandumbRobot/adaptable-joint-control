@@ -58,7 +58,7 @@ uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
 
 volatile bool new_data = false;
 #define SERVO_COUNT 4
-uint8_t servo_Ids[SERVO_COUNT] = {1,2,3,4}; //TODO: change IDS
+uint8_t servo_Ids[SERVO_COUNT] = {'0','1','y','p'}; //TODO: change IDS
 TIM_HandleTypeDef* tim_ids[SERVO_COUNT] = {&htim2,&htim2,&htim2,&htim3};
 //TODO: This is the wrong datatype but i don't know what to use
 uint32_t tim_channels[SERVO_COUNT] = {TIM_CHANNEL_1,TIM_CHANNEL_3,TIM_CHANNEL_4,TIM_CHANNEL_1};
@@ -241,19 +241,18 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 				sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
 				PRINT(buffer);
 			}
+			if(!new_data){
+				//Set servo values
+				for(int i = 0 ; i < jci_rx.PSIZE ; i++){
 
-			//Set servo values
-			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
-
-				for(int j=0; j<SERVO_COUNT; j++){
-					if(rxid[i]==servo_Ids[j]){
-						servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)((float)rxdata[i]*(255.0/(MAX_SERVO_POSITION-MIN_SERVO_POSITION))); //scale between min and max
+					for(int j=0; j<SERVO_COUNT; j++){
+						if(rxid[i]==servo_Ids[j]){
+							servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)(((float)rxdata[i])*((MAX_SERVO_POSITION-MIN_SERVO_POSITION))/255.0); //scale between min and max
+						}
 					}
 				}
-
+				new_data = true; //flag main process
 			}
-			new_data = true; //flag main process
-
 		}
 
 
