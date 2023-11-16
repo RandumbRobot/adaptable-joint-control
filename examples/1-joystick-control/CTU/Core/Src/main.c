@@ -164,6 +164,11 @@ int main(void)
 
   	PRINT("CTU init\r\n");
 
+
+    //Start RX
+    HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
+
+
 	int txpacketsize = 0;
 
 

@@ -53,8 +53,8 @@
 
 /* USER CODE BEGIN PV */
 
-#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
-uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
+
+
 
 volatile bool new_data = false;
 #define SERVO_COUNT 4
@@ -65,6 +65,45 @@ uint32_t tim_channels[SERVO_COUNT] = {TIM_CHANNEL_1,TIM_CHANNEL_3,TIM_CHANNEL_4,
 #define MIN_SERVO_POSITION  30 //should be 50 using spec sheet, but 30 is closer to the true value when testing
 #define MAX_SERVO_POSITION 125
 volatile uint16_t servo_positions[SERVO_COUNT] = {50,50,50,50}; //50 is defined as default position, can be changed
+
+
+
+
+
+/****** JCI protocol ******/
+
+#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+
+//DATA RECEIVER TX
+uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
+
+volatile jci_t jci_tx = {
+		.TRANS = 'A',
+		.CHECKSUM_EN = 1,
+		.GRAN = 1,
+		.PTYPE = 0,
+		.PSIZE = 4,
+		.SOURCE = 0,
+		.CONT = 1
+};
+
+uint8_t txdata[SERVO_COUNT] = {0};
+uint8_t txid[SERVO_COUNT] = {
+		'0',
+		'1',
+		'y',
+		'p'
+};
+
+//DATA RECEIVER RX
+uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+volatile jci_t jci_rx;
+uint8_t rxdata[SERVO_COUNT] = {0};
+uint8_t rxid[SERVO_COUNT] = {0};
+
+volatile uint8_t num_agreed_id = 0;
+uint8_t agreeid[SERVO_COUNT] = {0};
+
 
 
 /* USER CODE END PV */
@@ -125,8 +164,8 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
 
-  //RX
-  HAL_UARTEx_ReceiveToIdle_IT(&huart4, packet, MAX_JCI_PACKET_SIZE);
+  //Start RX
+  HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
 
 
   /* USER CODE END 2 */
@@ -208,57 +247,119 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 
 
-
-
-
-volatile jci_t jci_rx;
-uint8_t rxdata[MAX_JCI_PACKET_SIZE] = {0};
-uint8_t rxid[MAX_JCI_PACKET_SIZE] = {0};
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 
 	if(huart == &huart4){
+
+		uint8_t id_found;
 
 		char trans = ' ';
 		uint8_t* addr;
 
 		char buffer[256];
 		int rxpacketsize = 0;
+		int txpacketsize = 0;
 
-		//Parse current packet
-		addr = jci_findPacket(packet, Size, &trans);
+		//Check for JCI packet
+		addr = jci_findPacket(rxpacket, Size, &trans);
 		if(trans != ' '){
-			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, packet + (addr - packet));
 
-			  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
-					"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
-							jci_rx.TRANS,
-							jci_rx.CHECKSUM_EN,
-							jci_rx.GRAN,
-							jci_rx.PTYPE,
-							rxpacketsize);
-			PRINT(buffer);
-			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
-				sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
-				PRINT(buffer);
+			//Parse packet
+			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, addr);
+
+			if(rxpacketsize < 0){
+				PRINT("INVALID PACKET RECEIVED\r\n");
 			}
-			if(!new_data){
-				//Set servo values
-				for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+			else{ //valid packet
 
-					for(int j=0; j<SERVO_COUNT; j++){
-						if(rxid[i]==servo_Ids[j]){
-							servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)(((float)rxdata[i])*((MAX_SERVO_POSITION-MIN_SERVO_POSITION))/255.0); //scale between min and max
+
+				if(jci_rx.TRANS == 'C'){ //receive C-flow data
+					//NOTE: illegal 'C' packet are handled using the
+
+					PRINT(buffer);
+					for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+						sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
+						PRINT(buffer);
+					}
+					if(!new_data){
+						//Set servo values
+						for(int i = 0 ; i < num_agreed_id ; i++){
+							for(int j=0; j < SERVO_COUNT; j++){
+								if(agreeid[i]==servo_Ids[j]){
+									servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)(((float)rxdata[i])*((MAX_SERVO_POSITION-MIN_SERVO_POSITION))/255.0); //scale between min and max
+								}
+							}
+						}
+						new_data = true; //flag main process
+					}
+
+				}
+				else if((jci_rx.TRANS == 'S') && (jci_rx.CONT == 1)){ //if request for C-flow, send ACK
+
+					PRINT("C-flow REQUESTED\r\n");
+
+					//Check the IDs requested for control to make sure they are valid
+					jci_tx.CONT = 1; //accept by default
+					for(int i = 0; i < jci_rx.PSIZE ; i++){
+						id_found = 0;
+						for(int j = 0; j < SERVO_COUNT ; j++){
+							if(servo_Ids[j] == rxid[i]){
+
+								id_found = 1;
+
+								//update agreed ID list
+								agreeid[num_agreed_id++] = servo_Ids[j];
+
+								//update joint value if found
+								servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)(((float)rxdata[i])*((MAX_SERVO_POSITION-MIN_SERVO_POSITION))/255.0); //scale between min and max
+								break;
+							}
+						}
+						if(id_found == 0){
+							PRINT("INVALID ID REQUESTED, REFUSING C-flow\r\n");
+							jci_tx.CONT = 0; //refuse because invalid ID
+							//continue cause there might be other valid IDs with data
 						}
 					}
+
+					//Confirm the parameters (send back to agree)
+					jci_tx.CHECKSUM_EN = jci_rx.CHECKSUM_EN;
+					jci_tx.PTYPE = jci_rx.PTYPE;
+					jci_tx.PSIZE = jci_rx.PSIZE;
+
+					//Send the ACK
+					jci_tx.TRANS = 'A';
+					jci_tx.GRAN = 0; //response to 'S'
+
+					txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
+
+					//Check for C-flow
+					jci_confirmCFlow(&jci_tx, txid, &jci_rx, rxid);
+
 				}
-				new_data = true; //flag main process
+				else if(jci_rx.TRANS == 'S'){ //check if normal data
+					for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+						sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
+						PRINT(buffer);
+					}
+					if(!new_data){
+						//Set servo values
+						for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+							for(int j=0; j < SERVO_COUNT; j++){
+								if(rxid[i]==servo_Ids[j]){
+									servo_positions[j] = MIN_SERVO_POSITION + (uint16_t)(((float)rxdata[i])*((MAX_SERVO_POSITION-MIN_SERVO_POSITION))/255.0); //scale between min and max
+								}
+							}
+						}
+						new_data = true; //flag main process
+					}
+				}
 			}
 		}
 
 
-
 		//Wait for next packet
-		HAL_UARTEx_ReceiveToIdle_IT(&huart4, packet, MAX_JCI_PACKET_SIZE);
+		HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
 
 	}
 

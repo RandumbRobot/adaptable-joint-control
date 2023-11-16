@@ -421,7 +421,7 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
   * 
   * @retval Error result: -4 if illegal transaction type
   *                       -3 if 'R' packet is invalid
-  *                       -2 if 'C' trans received but not in 'C' flow.
+  *                       -2 if C-flow packet received but not in C-flow.
   *                       -1 if checksum error
   *                        packet size if no error.
   */
