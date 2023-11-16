@@ -128,7 +128,7 @@ int main(void)
 
 	jci_t jci_tx = {
 			.TRANS = 'S',
-			.CHECKSUM_EN = 1,
+			.CHECKSUM_EN = 0,
 			.GRAN = 1,
 			.PTYPE = 0,
 			.PSIZE = 4
@@ -173,12 +173,10 @@ int main(void)
   while (1)
   {
 
-
-	  HAL_Delay(200);
-
 	  //txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
 	  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, packet);
 
+	  /*
 	  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
 			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
 					jci_tx.TRANS,
@@ -187,21 +185,18 @@ int main(void)
 					jci_tx.PTYPE,
 					txpacketsize);
 	  PRINT(buffer);
-
-	  /*
-	  for(int i = 0 ; i < jci_tx.PSIZE ; i++){
-		  sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, txid[i], txdata[i]);
-		  PRINT(buffer);
-
-		  //update data for next time
-		  txdata[i] *= 3;
-	  }
 	  */
+
 
 	  HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
 
 	  //get joystick values
+	  uint32_t curtime = HAL_GetTick();
 	  jci_getPot();
+	  curtime = HAL_GetTick() - curtime;
+	  sprintf(buffer, "\r\nSTime: %lu\r\n",curtime);
+	  PRINT(buffer);
+
 
 	  //print pot values for debug
 
@@ -364,7 +359,7 @@ static void MX_UART4_Init(void)
 
   /* USER CODE END UART4_Init 1 */
   huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
+  huart4.Init.BaudRate = 1000000;
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
   huart4.Init.StopBits = UART_STOPBITS_1;
   huart4.Init.Parity = UART_PARITY_NONE;

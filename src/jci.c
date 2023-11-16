@@ -46,15 +46,24 @@ const char jci_std_id_table[] = {
 #define HEADER_SIZE_B   3       //Header size in bytes
 
 //Transaction types
-#define NEW_JOINT_DATA      'S'     //New joint data transaction
-#define CONT_JOINT_DATA     'C'     //Continue joint data transaction
-#define REQUEST_JOINT_ID    'R'     //Request joint IDs and types
-#define SEND_JOINT_ID       'A'     //Send joint IDs and types
+#define JCI_START_TRANS_TYPE    'S'     //New joint data transaction
+#define JCI_CONT_TRANS_TYPE     'C'     //Continue joint data transaction
+#define JCI_REQUEST_TRANS_TYPE  'R'     //Request joint IDs and types
+#define JCI_ACK_TRANS_TYPE      'A'     //Send joint IDs and types
+
+//Header offsets
+#define CHECKSUM_EN_OFFSET  0
+#define GRAN_OFFSET         1
+#define PTYPE_OFFSET        2
+#define SOURCE_OFFSET       3
+#define CONT_OFFSET         4
 
 //Header masks
-#define CHECKSUM_EN_MASK    0b1 
-#define GRAN_MASK           0b10
-#define PTYPE_MASK          0b100
+#define CHECKSUM_EN_MASK    (0b1 << CHECKSUM_EN_OFFSET)
+#define GRAN_MASK           (0b1 << GRAN_OFFSET)
+#define PTYPE_MASK          (0b1 << PTYPE_OFFSET)
+#define SOURCE_MASK         (0b1 << SOURCE_OFFSET)
+#define CONT_MASK           (0b1 << CONT_OFFSET)
 
 
 /**
@@ -106,7 +115,7 @@ uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* p
 
     switch (jci->TRANS)
     {
-    case NEW_JOINT_DATA:
+    case JCI_START_TRANS_TYPE:
         //Payload data
         //Copy data
         memcpy(packet + HEADER_SIZE_B, data, jci->PSIZE * (1+jci->PTYPE));
@@ -114,22 +123,35 @@ uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* p
         memcpy(packet + HEADER_SIZE_B + (jci->PSIZE*(1+jci->PTYPE)), id_list, jci->GRAN*jci->PSIZE);
         break;
     
-    case CONT_JOINT_DATA:
+    case JCI_CONT_TRANS_TYPE:
+
+        //Check if currently in 'C' transaction flow. Return error otherwise.
+        //NOTE: this should be handled by the jci_parseHeader function anyway)
+        if(jci->CONTACCEPT != 1){
+            packet_size = 0;
+            break;
+        }
+
         //Payload data
         //Copy data
-        memcpy(packet + (HEADER_SIZE_B - 2), data, jci->PSIZE * (1+jci->PTYPE));
+        memcpy(packet + (HEADER_SIZE_B - 2), data, jci->CONTPSIZE * (1+jci->CONTPTYPE));
         //Copy IDs if granular control (0 bytes memcpy otherwise)
-        memcpy(packet + (HEADER_SIZE_B - 2) + (jci->PSIZE*(1+jci->PTYPE)), id_list, jci->GRAN*jci->PSIZE);
+        //IDs are agreed upon already, not sent.
         break;
     
-    case REQUEST_JOINT_ID:
+    case JCI_REQUEST_TRANS_TYPE:
         //do nothing
         break;
     
-    case SEND_JOINT_ID:
+    case JCI_ACK_TRANS_TYPE:
         //Payload
-    	jci->PSIZE = jci->PSIZE*jci->PTYPE; //force correct PSIZE for TX
-        //Copy joint IDs data
+        //force correct PSIZE for TX
+        if(jci->GRAN == 1){ //if answer for 'R'
+            jci->PSIZE = jci->PSIZE*jci->PTYPE; //set to 0 if standard IDs
+        }else{ //if answer for 'S'
+            jci->PSIZE = jci->PSIZE*jci->CONT; //set to 0 if declined
+        }
+        //Copy joint IDs data (no copy when PTYPE is 0. PSIZE is set to 0 when CONT is declined for 'S' transaction)
         memcpy(packet + HEADER_SIZE_B, id_list, jci->PSIZE);
         break;
     
@@ -165,7 +187,8 @@ uint32_t jci_buildPacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* p
   * @param  packet      Pointer to packet buffer. The address of the start of the
   *                     packet shall be provided, not the start of the payload data.
   * 
-  * @retval packet size in bytes. If 0 is returned, it means it was an illegal transaction type.
+  * @retval packet size in bytes. If 0 is returned, it means it was an illegal transaction type or that
+  *         a 'C' transaction was attempted but no 'C' flow was occuring.
   */
 uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
     
@@ -176,14 +199,19 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
     
     switch (jci->TRANS)
     {
-    case NEW_JOINT_DATA:
+    case JCI_START_TRANS_TYPE:
         //Calculate packet size
-        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
+        payload_size = jci->PSIZE*(1 + jci->PTYPE + jci->GRAN);
         packet_size = HEADER_SIZE_B + payload_size + jci->CHECKSUM_EN;
 
         //Packet header
         packet[0] = jci->TRANS;
-        packet[1] = (jci->PTYPE << 2) | (jci->GRAN << 1) | jci->CHECKSUM_EN;
+        packet[1] = (jci->CHECKSUM_EN   <<  CHECKSUM_EN_OFFSET) |
+                    (jci->GRAN          <<  GRAN_OFFSET)        |
+                    (jci->PTYPE         <<  PTYPE_OFFSET)       |
+                    (jci->SOURCE        <<  SOURCE_OFFSET)      |
+                    (jci->CONT          <<  CONT_OFFSET);
+                    //last bits are set to 0
         packet[2] = jci->PSIZE;
 
         //Packet checksum
@@ -197,12 +225,31 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
             packet[HEADER_SIZE_B + payload_size] = checksum;
             jci->CHECKSUM = checksum;
         }
+
+
+        if(jci->CONT == 1){ //save C-flow request
+            //Disable C-flow (new request)
+            //NOTE: this way the TX won't send C-flow requests by accident
+            jci->CONTACCEPT = 0;
+
+            //Save TX C-flow state to compare with RX (data sender side)
+            jci->CONTCHECKSUM_EN = jci->CHECKSUM_EN;
+            jci->CONTPTYPE = jci->PTYPE;
+            jci->CONTPSIZE = jci->PSIZE;
+        }
+
         break;
     
-    case CONT_JOINT_DATA:
+    case JCI_CONT_TRANS_TYPE:
+        //Make sure a C-flow is enabled for TX
+        if(jci->CONTACCEPT != 1){
+            packet_size = 0;
+            break;
+        }
+
         //Calculate packet size
-        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
-        packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CHECKSUM_EN;
+        payload_size = jci->CONTPSIZE*(1 + jci->CONTPTYPE);
+        packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CONTCHECKSUM_EN;
 
         //Packet header
         packet[0] = jci->TRANS;
@@ -222,7 +269,7 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
         }
         break;
     
-    case REQUEST_JOINT_ID:
+    case JCI_REQUEST_TRANS_TYPE:
         //Calculate packet size
         payload_size = 0;
         packet_size = 3;
@@ -236,14 +283,41 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet){
         //no checksum
         break;
     
-    case SEND_JOINT_ID:
+    case JCI_ACK_TRANS_TYPE:
+        //Answer specific header
+        if(jci->GRAN == 0){ //answer to 'S' packet
+
+            //Enable/Disable 'C' flow for RX (data receiver side)
+            //jci->CONTACCEPT = jci->CONT; TODO use confirm function
+
+            if(jci->CONT == 1){ //if accepted
+                //Save TX C-flow context to compare to RX (data receiver side)
+                //(fields agreed upon)
+                jci->CONTCHECKSUM_EN = jci->CHECKSUM_EN;
+                jci->CONTPTYPE = jci->PTYPE;
+                jci->CONTPSIZE = jci->PSIZE;
+            }else{ //if declined
+                jci->PTYPE = 0;
+                jci->PSIZE = 0;
+            }
+        }
+        else{ //answer to 'R' packet
+            jci->PSIZE = jci->PSIZE * jci->PTYPE; //set to 0 if standard ID (if PTYPE == 0)
+            jci->CONT = 0; //unused
+        }
+
         //Calculate packet size
         payload_size = jci->PSIZE;
         packet_size = HEADER_SIZE_B + payload_size + jci->CHECKSUM_EN;
 
         //Packet header
         packet[0] = jci->TRANS;
-        packet[1] = (jci->PTYPE << 2) | (0 << 1) | jci->CHECKSUM_EN;
+        packet[1] = (jci->CHECKSUM_EN   <<  CHECKSUM_EN_OFFSET) |
+                    (jci->GRAN          <<  GRAN_OFFSET)        |
+                    (jci->PTYPE         <<  PTYPE_OFFSET)       |
+                    (jci->SOURCE        <<  SOURCE_OFFSET)      |
+                    (jci->CONT          <<  CONT_OFFSET);
+                    //last bits are set to 0
         packet[2] = jci->PSIZE;
 
         //Packet checksum
@@ -295,11 +369,11 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
     for(int i = 0 ; i < (size - 2) ; i++){
 
         currchar = data[i];
-        if( (currchar == NEW_JOINT_DATA) ||
-            (currchar == SEND_JOINT_ID)){
+        if( (currchar == JCI_START_TRANS_TYPE) ||
+            (currchar == JCI_ACK_TRANS_TYPE)){
 
             //Check if header data is valid
-            if(data[i+1] > 0b1000){
+            if(data[i+1] >= 0b100000){ //header must be smaller
                 continue;
             }
 
@@ -308,7 +382,7 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
             addr = data + i;
             break;
         }
-        else if(currchar == REQUEST_JOINT_ID){
+        else if(currchar == JCI_REQUEST_TRANS_TYPE){
             
             //Check if header data is valid
             if(data[i+1] != 'E'){
@@ -320,7 +394,7 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
             addr = data + i;
             break;
         }
-        else if(currchar == CONT_JOINT_DATA){
+        else if(currchar == JCI_CONT_TRANS_TYPE){
 
         	//cannot partially validate, checksum recommended
 
@@ -347,7 +421,7 @@ uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans){
   * 
   * @retval Error result: -4 if illegal transaction type
   *                       -3 if 'R' packet is invalid
-  *                       -2 if 'C' trans received but jci is invalid.
+  *                       -2 if 'C' trans received but not in 'C' flow.
   *                       -1 if checksum error
   *                        packet size if no error.
   */
@@ -362,27 +436,34 @@ int jci_parsePacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet
         //Checksum test passed, can copy data over.
         switch (jci->TRANS)
         {
-        case NEW_JOINT_DATA:
+        case JCI_START_TRANS_TYPE:
             //Copy data
             memcpy(data, packet + HEADER_SIZE_B, jci->PSIZE * (1+jci->PTYPE));
-            //Copy IDs if grain control (0 bytes memcpy otherwise)
+            //Copy IDs if granular control (0 bytes memcpy otherwise)
             memcpy(id_list, packet + HEADER_SIZE_B + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
             break;
 
-        case CONT_JOINT_DATA:
+        case JCI_CONT_TRANS_TYPE:
+            //Check if currently in 'C' transaction flow. Return error otherwise.
+            //NOTE: this should be handled by the jci_parseHeader function anyway)
+            if(jci->CONTACCEPT != 1){
+                packet_size = -2;
+                break;
+            }
+
             //Copy data
-            memcpy(data, packet + (HEADER_SIZE_B - 2), jci->PSIZE * (1+jci->PTYPE));
+            memcpy(data, packet + (HEADER_SIZE_B - 2), jci->CONTPSIZE * (1+jci->CONTPTYPE));
             //Copy IDs if granular control (0 bytes memcpy otherwise)
-            memcpy(id_list, packet + (HEADER_SIZE_B - 2) + (jci->PSIZE*(1+jci->PTYPE)), jci->GRAN*jci->PSIZE);
+            //IDs are agreed upon already, not sent.
             break;
 
-        case REQUEST_JOINT_ID:
+        case JCI_REQUEST_TRANS_TYPE:
             //do nothing
             break;
 
-        case SEND_JOINT_ID:
+        case JCI_ACK_TRANS_TYPE:
             //Payload
-            //Copy joint IDs data
+            //Copy joint IDs data (no copy when PTYPE is 0. PSIZE is set to 0 when CONT is declined for 'S' transaction)
             memcpy(id_list, packet + HEADER_SIZE_B, jci->PSIZE);
             break;
 
@@ -406,25 +487,31 @@ int jci_parsePacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet
   *         either 'C' or 'S', otherwise the -2 error is thrown.
   * 
   * @param jci         Pointer to struct to store the information about the packet received.
+  *                    If a 'C' transaction can occur, make sure to pass the same
+  *                    RX jci_t handle from the latest 'S' transaction since its header is used
+  *                    and there is verification.
+  *                    
   * @param packet      Pointer to packet to parse.
   * 
   * 
   * @retval Error result: -4 if illegal transaction type
   *                       -3 if 'R' packet is invalid
-  *                       -2 if 'C' trans received but jci is invalid.
+  *                       -2 if 'C' trans received but not in 'C' flow.
   *                       -1 if checksum error
   *                        packet size if no error.
   */
 int jci_parseHeader(jci_t* jci, uint8_t* packet){
 
     char prev_trans;
+    uint8_t prev_cont;
     uint8_t header;
     uint16_t payload_size;
     int packet_size;
     uint8_t checksum;
 
-    //Save the transaction type for later verification
+    //Save the transaction type for later transaction verification
     prev_trans = jci->TRANS;
+    prev_cont = jci->CONT;
 
     //Transaction type
     jci->TRANS = packet[0];
@@ -432,17 +519,19 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
     
     switch (jci->TRANS)
     {
-    case NEW_JOINT_DATA:
+    case JCI_START_TRANS_TYPE:
 
         //Packet header
         header = packet[1];
-        jci->CHECKSUM_EN = header & CHECKSUM_EN_MASK;
-        jci->GRAN = (header & GRAN_MASK) >> 1;
-        jci->PTYPE = (header & PTYPE_MASK) >> 2;
+        jci->CHECKSUM_EN = (header & CHECKSUM_EN_MASK)  >> CHECKSUM_EN_OFFSET;
+        jci->GRAN =        (header & GRAN_MASK)         >> GRAN_OFFSET;
+        jci->PTYPE =       (header & PTYPE_MASK)        >> PTYPE_OFFSET;
+        jci->SOURCE =      (header & SOURCE_MASK)       >> SOURCE_OFFSET;
+        jci->CONT =        (header & CONT_MASK)         >> CONT_OFFSET;
         jci->PSIZE = packet[2];
 
         //Packet and payload sizes
-        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
+        payload_size = jci->PSIZE*(1 + jci->PTYPE + jci->GRAN);
         packet_size = HEADER_SIZE_B + payload_size + jci->CHECKSUM_EN;
 
         //Packet checksum
@@ -463,25 +552,33 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
                 break;
             }
         }
+
+        if(jci->CONT == 1){
+            //Save RX C-flow state to compare to TX (data receiver side)
+            jci->CONTCHECKSUM_EN = jci->CHECKSUM_EN;
+            jci->CONTPTYPE = jci->PTYPE;
+            jci->CONTPSIZE = jci->PSIZE;
+        }
         break;
     
-    case CONT_JOINT_DATA:
-
+    case JCI_CONT_TRANS_TYPE:
         //Packet header
-        //reusing the same JCI header from last 'S' transaction reveived.
-        //Check for valid JCI
-        if((prev_trans != CONT_JOINT_DATA) && (prev_trans != NEW_JOINT_DATA)){
+        //Reusing the same JCI header from last 'S' transaction reveived and agreed upon.
+        //Check if currently in 'C' transaction flow. Return error otherwise.
+        if(jci->CONTACCEPT != 1){
             packet_size = -2;
             break;
         }
 
+        //use 'C' flow RX saved state
+
         //Packet and payload sizes
-        payload_size = jci->PSIZE*((1+jci->PTYPE) + jci->GRAN);
-        packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CHECKSUM_EN;
+        payload_size = jci->CONTPSIZE*(1 + jci->CONTPTYPE);
+        packet_size = (HEADER_SIZE_B - 2) + payload_size + jci->CONTCHECKSUM_EN;
 
 
         //Packet checksum
-        if(jci->CHECKSUM_EN)
+        if(jci->CONTCHECKSUM_EN)
         {
             jci->CHECKSUM = packet[(HEADER_SIZE_B - 2) + payload_size];
 
@@ -500,11 +597,11 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
         }
         break;
     
-    case REQUEST_JOINT_ID:
+    case JCI_REQUEST_TRANS_TYPE:
 
         //Packet header
-        //Validate packet (only need to valiate packet[2] since packet[0] and packet[1]
-        //were previously validated)
+        //Validate packet (only need to validate packet[2] since packet[0] and packet[1]
+        //were previously validated using "jci_findPacket")
         if(packet[2] != 'Q'){
             packet_size = -3;
             break;
@@ -518,13 +615,15 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
         //no checksum
         break;
     
-    case SEND_JOINT_ID:
+    case JCI_ACK_TRANS_TYPE:
 
         //Packet header
         header = packet[1];
-        jci->CHECKSUM_EN = header & CHECKSUM_EN_MASK;
-        jci->GRAN = 0; //unused
-        jci->PTYPE = (header & PTYPE_MASK) >> 2;
+        jci->CHECKSUM_EN = (header & CHECKSUM_EN_MASK)  >> CHECKSUM_EN_OFFSET;
+        jci->GRAN =        (header & GRAN_MASK)         >> GRAN_OFFSET;
+        jci->PTYPE =       (header & PTYPE_MASK)        >> PTYPE_OFFSET;
+        jci->SOURCE =      (header & SOURCE_MASK)       >> SOURCE_OFFSET;
+        jci->CONT =        (header & CONT_MASK)         >> CONT_OFFSET;
         jci->PSIZE = packet[2];
 
         //Packet and payload sizes
@@ -549,6 +648,22 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
                 break;
             }
         }
+
+        //Answer specific transaction
+        if(jci->GRAN == 0){ //Response to 'S' transaction
+
+            if(jci->CONT == 1){ //if accepted
+                //Save RX C-flow state to compare with TX (data sender side)
+                jci->CONTCHECKSUM_EN = jci->CHECKSUM_EN;
+                jci->CONTPTYPE = jci->PTYPE;
+                jci->CONTPSIZE = jci->PSIZE;
+            }
+
+            //else do nothing
+        }
+        else{ //Response to 'R' transaction
+            //do nothing, simply receive data
+        }
         break;
     
     default:
@@ -557,4 +672,66 @@ int jci_parseHeader(jci_t* jci, uint8_t* packet){
     }
 
     return packet_size;
+}
+
+
+
+
+/**
+  * @brief  Compares a JCI TX packet and a JCI RX packet to confirm wheter or not C-flow can
+  *         occur.
+  * @note   This function shall only be used by the data sender of the C-flow transactions. The data
+  *         receiver enables C-flow as soon as it sees a request for C-flow and accepts it. If the 
+  *         data sender side changes the C-flow, it won't be able to send C-flow transactions
+  *         until the receiver side has confirmed to have received it.
+  * 
+  * @param jci_tx      Pointer to a JCI struct for TX JCI handle
+  * @param jci_rx      Pointer to a JCI struct for RX JCI handle
+  * 
+  * @retval Error result: -1 if error when comparing C-flow state for TX and RX
+  *                        0 if C-flow declined (or if no response received)
+  *                        1 if C-flow accepted
+  */
+int jci_confirmCFlow(jci_t* jci_tx, char* tx_id, jci_t* jci_rx, char* rx_id){
+
+    int res;
+
+    res = 0; //declined by default
+
+    //Check if RX port received an acceptance response packet for a C-flow request (data sender side)
+    //OR
+    //Check if TX port sent a response packet to accept C-flow request (data receiver side)
+    if( ((jci_rx->TRANS == JCI_ACK_TRANS_TYPE) && (jci_rx->GRAN == 0) && (jci_rx->CONT == 1)) ||
+        ((jci_tx->TRANS == JCI_ACK_TRANS_TYPE) && (jci_tx->GRAN == 0) && (jci_tx->CONT == 1))){
+
+        //Verify that the fields agreed upon are correct
+        if( (jci_tx->CONTCHECKSUM_EN != jci_rx->CONTCHECKSUM_EN)    ||
+            (jci_tx->CONTPTYPE       != jci_rx->CONTPTYPE)          ||
+            (jci_tx->CONTPSIZE       != jci_rx->CONTPSIZE) ){
+
+            //Error result
+            res = -1;
+        }
+        else{ //fields agreed upon are correct
+
+            //Verify that the IDs are the same
+            for(int i = 0 ; i < jci_tx->CONTPSIZE ; i++){
+                if(tx_id[i] != rx_id[i]){
+
+                    //Error result
+                    res = -1;
+                    break;
+                }
+            }
+
+            if(res == 0){ //if no error
+                //Enable C-flow for TX and RX
+                jci_tx->CONTACCEPT = 1;
+                jci_rx->CONTACCEPT = 1;
+                res = 1;
+            }
+        }
+    }
+
+    return res;
 }

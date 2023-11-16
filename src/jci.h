@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "stdint.h"
 
+//TODO current problem is it assumes we are using the same packet for both TX and RX for C-flow confirmation, which is bad
+//put the C-flow control at the RX level only. TX need to manually verify with an RX packet if confirmation is received.
 
 /***** JCI INTERFACE *****/
 
@@ -44,26 +46,44 @@ typedef int (*jci_transmit)(uint8_t* data, uint32_t size);
 typedef int (*jci_receive)(uint8_t* data, uint32_t size);
 
 
-//Packet struct
+//Transaction struct
 typedef struct{
 
-    /* Operations */
-    jci_transmit tx; //UNUSED
-    jci_receive rx; //UNUSED
+   /* Operations */
+   jci_transmit tx; //UNUSED
+   jci_receive rx; //UNUSED
 
-    /* Packet */
-    //Header
-    uint8_t TRANS;
-    uint8_t CHECKSUM_EN;
-    uint8_t GRAN;
-    uint8_t PTYPE;
-    uint8_t PSIZE;
+   /* Packet */
+   //Header
+   uint8_t TRANS;         //Transaction type
+   uint8_t CHECKSUM_EN;   //Enable/Disable Checksum
+   uint8_t GRAN;          //Granular data (specific joint IDs)
+   uint8_t PTYPE;         //Type of data (transaction type dependent)
+   uint8_t SOURCE;        //Packet source
+   uint8_t CONT;          //'C' transaction type request (transaction type dependent)
+   uint8_t PSIZE;         //Payload size
 
-    //Payload
-    //void* PAYLOAD; //UNUSED
+   //Payload
+   //void* PAYLOAD; //UNUSED
 
-    //Checksum
-    uint8_t CHECKSUM;
+   //Checksum
+   uint8_t CHECKSUM;
+
+
+   /* C-flow State Control */
+   //These variables are used to keep track of C-flow state
+   //accross multiple packets received, since the structs fields
+   //are overwritten.
+   //A C-flow can be interrupted by any other type of packet
+   //(except an 'S' packet with CONT field set to '1' since this is
+   //a request for a new C-flow) and then continue thanks this state
+   //control.
+   //All private variables.
+   uint8_t CONTACCEPT;      //Internal control variables to check if a 'C' flow
+                            //is currently underway.
+   uint8_t CONTPTYPE;       //'C' flow PTYPE
+   uint8_t CONTCHECKSUM_EN; //'C' flow CHECKSUM_EN
+   uint8_t CONTPSIZE;       //'C' flow PSIZE
 
 }jci_t;
 
@@ -76,6 +96,9 @@ uint32_t jci_buildHeader(jci_t* jci, uint8_t* packet);
 uint8_t* jci_findPacket(uint8_t* data, uint32_t size, char* trans);
 int jci_parsePacket(jci_t* jci, uint8_t* data, uint8_t* id_list, uint8_t* packet);
 int jci_parseHeader(jci_t* jci, uint8_t* packet);
+
+//C-flow control
+int jci_confirmCFlow(jci_t* jci_tx, char* tx_id, jci_t* jci_rx, char* rx_id);
 
 
 
