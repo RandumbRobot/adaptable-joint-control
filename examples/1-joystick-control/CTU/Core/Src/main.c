@@ -51,6 +51,58 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
+
+/****** JCI protocol ******/
+
+#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
+
+//DATA SENDER TX
+uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
+
+volatile jci_t jci_tx = {
+		.TRANS = 'S',
+		.CHECKSUM_EN = 1,
+		.GRAN = 1,
+		.PTYPE = 0,
+		.PSIZE = 4,
+		.SOURCE = 0,
+		.CONT = 1
+};
+uint8_t txdata[4] = {
+		4,
+		5,
+		90,
+		156
+};
+uint8_t txid[4] = {
+		'0',
+		'1',
+		'y',
+		'p'
+};
+
+//DATA SENDER RX
+uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+volatile jci_t jci_rx;
+uint8_t rxdata[4] = {0};
+uint8_t rxid[4] = {0};
+
+
+
+
+/****** State Logic ******/
+typedef enum{
+	STOPPED,
+	PLAYBACK,
+	REALTIME
+}state_e;
+
+volatile uint8_t state = STOPPED;	//state flag
+volatile uint8_t recording = 0; 	//flag to indicate if recording
+
+
+/****** Joystick ******/
+
 //DMA storing address, array length of 4:
 //Joy1_X, Joy1_Y, Joy2_X, Joy2_Y
 volatile uint8_t joysticksVal[4];
@@ -67,10 +119,6 @@ static void MX_UART4_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
-
-void jci_test_u8(void);
-void jci_test_u16(void);
-void jci_test_misc(void);
 
 /* USER CODE END PFP */
 
@@ -114,57 +162,46 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 
-  jci_test_u8();
-  jci_test_u16();
-  jci_test_misc();
+  	PRINT("CTU init\r\n");
 
-
-
-
-  PRINT("CTU init\r\n");
-
-	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
-    uint8_t packet[MAX_JCI_PACKET_SIZE] = {0};
-
-	jci_t jci_tx = {
-			.TRANS = 'S',
-			.CHECKSUM_EN = 0,
-			.GRAN = 1,
-			.PTYPE = 0,
-			.PSIZE = 4
-	};
-
-	uint8_t txdata[4] = {
-			4,
-			5,
-			90,
-			156
-	};
-	uint8_t txid[4] = {
-			'0',
-			'1',
-			'y',
-			'p'
-	};
 	int txpacketsize = 0;
 
-	txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
+
 
 	char buffer[256];
 	sprintf(buffer, "Packet info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
-			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
-					jci_tx.TRANS,
-					jci_tx.CHECKSUM_EN,
-					jci_tx.GRAN,
-					jci_tx.PTYPE,
-					txpacketsize);
+		"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
+				jci_tx.TRANS,
+				jci_tx.CHECKSUM_EN,
+				jci_tx.GRAN,
+				jci_tx.PTYPE,
+				txpacketsize);
 
 	PRINT(buffer);
 
-	HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
 
-	//TODO add check to make sure the other board received the 'S' packet
-	//jci_tx.TRANS= 'C';
+	//Attempt to have a C-flow
+	while(!jci_tx.CONTACCEPT){
+
+		//poll data (or introduce small delay
+
+		//CLI current data and IDs
+
+		txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
+		if(txpacketsize == 0){
+		  PRINT("ERROR: build packet\r\n");
+		}else{
+		  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
+		}
+
+	}
+
+	PRINT("ENTERING C-flow\r\n");
+
+	//C-flow obtained
+	jci_tx.TRANS = 'C';
+
+
 
   /* USER CODE END 2 */
 
@@ -173,32 +210,38 @@ int main(void)
   while (1)
   {
 
-	  //txpacketsize = jci_buildPacket(&jci_tx, txdata, txid, packet);
-	  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, packet);
+	//TODO CLI and state logic (stopped, playback, real-time)
 
-	  /*
-	  sprintf(buffer, "\r\nPacket info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
-			"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
-					jci_tx.TRANS,
-					jci_tx.CHECKSUM_EN,
-					jci_tx.GRAN,
-					jci_tx.PTYPE,
-					txpacketsize);
-	  PRINT(buffer);
-	  */
+	  switch (state)
+	  {
+	  	  case STOPPED:
+	  			//_WFI(); //TODO for interrupt/event (low-power)
+	  		  //TODO are we changing mode or just random interrupt?
+	  	  case PLAYBACK:
+	  		  //TODO play back what's in the Flash
+	  	  case REALTIME:
 
+			  //get joystick values
+			  jci_getPot();
 
-	  HAL_UART_Transmit(&huart4, packet, txpacketsize, HAL_MAX_DELAY);
+			  //CLI current data and IDs for joystick values
+			  //TODO cleaner CLI
+			  sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
+						joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
+			  PRINT(buff);
 
-	  //get joystick values
-	  uint32_t curtime = HAL_GetTick();
-	  jci_getPot();
-	  curtime = HAL_GetTick() - curtime;
-	  sprintf(buffer, "\r\nSTime: %lu\r\n",curtime);
-	  PRINT(buffer);
+			  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
+			  if(txpacketsize == 0){
+				  PRINT("ERROR: build packet\r\n");
+			  }else{
+				  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
+			  }
 
-
-	  //print pot values for debug
+			  if(recording){
+				  //todo record to Flash with time passed from previous sample
+				  //to reproduce the delays accurately
+			  }
+	  }
 
 
     /* USER CODE END WHILE */
@@ -480,609 +523,40 @@ static void MX_GPIO_Init(void)
 
 
 
-void jci_test_misc(void){
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 
-	//Every test uses 4 values
-	char txid[] = {
-		  '0',
-		  '1',
-		  'r',
-		  'o'
-	};
-	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
 
+	if(huart == &huart4){
 
-	//Result variables
-	uint32_t txpacketsize = 0;
-	int rxpacketsize = 0;
+		char trans = ' ';
+		uint8_t* addr;
 
-	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
-	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
-	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
+		char buffer[256];
+		int rxpacketsize = 0;
 
-	//********** TEST1 **********//
-	//IDs request
-	jci_t jci_tx = {
-		  .TRANS = 'R',
-	};
-	jci_t jci_rx;
+		//Check for JCI packet
+		addr = jci_findPacket(rxpacket, Size, &trans);
+		if(trans != ' '){
 
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
+			//Parse packet
+			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, addr);
 
+			//TODO CLI show packet received
+			//use flag cause else might have race condition for UART
 
-	/*
-	 * WITH CUSTOM PTYPE
-	 * WITHOUT CHECKSUM
-	 */
+			//Check for C-flow
+			jci_confirmCFlow(&jci_tx, txid, &jci_rx, rxid);
+		}
 
-	//********** TEST1 **********//
-	//IDs sent
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 0;
-	jci_tx.PTYPE = 1;
-	jci_tx.PSIZE = 4;
 
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-
-
-
-	/*
-	 * WITH CUSTOM PTYPE
-	 * WITH CHECKSUM
-	 */
-
-	//********** TEST1 **********//
-	//IDs sent
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.PTYPE = 1;
-	jci_tx.PSIZE = 4;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-
-
-	//********** TEST2 **********//
-	//IDs sent
-	//introduce error (checksum will fail)
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.PTYPE = 1;
-	jci_tx.PSIZE = 4;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	txpacket[5] = ' ';
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-
-
-
-
-
-	/*
-	 * WITH STANDARD PTYPE
-	 * WITHOUT CHECKSUM
-	 */
-
-	//********** TEST1 **********//
-	//IDs sent
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 0;
-	jci_tx.PTYPE = 0;
-	jci_tx.PSIZE = 4;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-
-
-
-	/*
-	 * WITH STANDARD PTYPE
-	 * WITH CHECKSUM
-	 */
-
-	//********** TEST1 **********//
-	//IDs sent
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.PTYPE = 0;
-	jci_tx.PSIZE = 4;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-
-
-	//********** TEST2 **********//
-	//IDs sent
-	//introduce error (checksum will fail)
-	jci_tx.TRANS = 'A';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.PTYPE = 0;
-	jci_tx.PSIZE = 4;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
-	txpacket[3] = ' ';
-	rxpacketsize = jci_parsePacket(&jci_rx, NULL, rxid, txpacket);
-}
-
-
-void jci_test_u16(void){
-
-	//Every test uses 4 values
-	uint16_t txdata_u16[] = {
-		  0,
-		  100,
-		  1420,
-		  10769
-	};
-	uint16_t rxdata_u16[sizeof(txdata_u16)/sizeof(uint16_t)] = {0};
-
-
-	char txid[] = {
-		  '0',
-		  '1',
-		  'r',
-		  'o'
-	};
-	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
-
-
-	//Result variables
-	uint32_t txpacketsize = 0;
-	int rxpacketsize = 0;
-
-	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
-	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
-	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
-
-	/*
-	 * WITHOUT CHECKSUM
-	 * WITHOUT GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_t jci_tx = {
-		  .TRANS = 'S',
-		  .CHECKSUM_EN = 0,
-		  .GRAN = 0,
-		  .PTYPE = 1,
-		  .PSIZE = 4
-	};
-	jci_t jci_rx;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u16[0] = 3;
-	txdata_u16[1] = 10036;
-	txdata_u16[2] = 9000;
-	txdata_u16[3] = 55;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u16[0] = 10;
-	txdata_u16[1] = 12688;
-	txdata_u16[2] = 36822;
-	txdata_u16[3] = 201;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-
-	/*
-	 * WITH CHECKSUM
-	 * WITHOUT GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u16[0] = 0;
-	txdata_u16[1] = 8;
-	txdata_u16[2] = 100;
-	txdata_u16[3] = 200;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u16[0] = 30000;
-	txdata_u16[1] = 13610;
-	txdata_u16[2] = 9;
-	txdata_u16[3] = 559;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u16[0] = 109;
-	txdata_u16[1] = 12620;
-	txdata_u16[2] = 68;
-	txdata_u16[3] = 2012;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	//********** TEST4 **********//
-	//Continue operation (second time, last operation was 'C')
-	//introduce error (checksum should fail)
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u16[0] = 119;
-	txdata_u16[1] = 8;
-	txdata_u16[2] = 10220;
-	txdata_u16[3] = 200;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, NULL, txpacket);
-	txpacket[5] = 0;
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	/*
-	 * WITH CHECKSUM
-	 * WITH GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.GRAN = 1;
-
-	//new data
-	txdata_u16[0] = 0;
-	txdata_u16[1] = 8;
-	txdata_u16[2] = 100;
-	txdata_u16[3] = 200;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u16[0] = 30000;
-	txdata_u16[1] = 13610;
-	txdata_u16[2] = 9;
-	txdata_u16[3] = 559;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u16[0] = 109;
-	txdata_u16[1] = 12620;
-	txdata_u16[2] = 68;
-	txdata_u16[3] = 2012;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
-
-
-
-	//********** TEST4 **********//
-	//Continue operation (second time, last operation was 'C')
-	//introduce error (checksum should fail)
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u16[0] = 119;
-	txdata_u16[1] = 8;
-	txdata_u16[2] = 10220;
-	txdata_u16[3] = 200;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u16, txid, txpacket);
-	txpacket[5] = 0;
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u16, rxid, txpacket);
+		//Wait for next packet
+		HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
+	}
 
 }
 
 
-void jci_test_u8(void){
 
-	//Every test uses 4 values
-	uint8_t txdata_u8[] = {
-		  0,
-		  8,
-		  100,
-		  200
-	};
-	uint8_t rxdata_u8[sizeof(txdata_u8)/sizeof(uint8_t)] = {0};
-
-	char txid[] = {
-		  '0',
-		  '1',
-		  'r',
-		  'o'
-	};
-	uint8_t rxid[sizeof(txid)/sizeof(char)] = {0};
-
-	//Result variables
-	uint32_t txpacketsize = 0;
-	int rxpacketsize = 0;
-
-	#define MAX_JCI_PACKET_SIZE (3 + 256 * 3 + 1)
-	uint8_t txpacket[MAX_JCI_PACKET_SIZE] = {0};
-	uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
-
-	/*
-	 * WITHOUT CHECKSUM
-	 * WITHOUT GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_t jci_tx = {
-		  .TRANS = 'S',
-		  .CHECKSUM_EN = 0,
-		  .GRAN = 0,
-		  .PTYPE = 0,
-		  .PSIZE = 4
-	};
-	jci_t jci_rx;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u8[0] = 3;
-	txdata_u8[1] = 136;
-	txdata_u8[2] = 9;
-	txdata_u8[3] = 55;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u8[0] = 10;
-	txdata_u8[1] = 126;
-	txdata_u8[2] = 68;
-	txdata_u8[3] = 201;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-
-	/*
-	 * WITH CHECKSUM
-	 * WITHOUT GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u8[0] = 0;
-	txdata_u8[1] = 8;
-	txdata_u8[2] = 100;
-	txdata_u8[3] = 200;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u8[0] = 3;
-	txdata_u8[1] = 136;
-	txdata_u8[2] = 9;
-	txdata_u8[3] = 55;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u8[0] = 10;
-	txdata_u8[1] = 126;
-	txdata_u8[2] = 68;
-	txdata_u8[3] = 201;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-	//********** TEST4 **********//
-	//Continue operation (second time, last operation was 'C')
-	//introduce error (checksum should fail)
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u8[0] = 1;
-	txdata_u8[1] = 8;
-	txdata_u8[2] = 100;
-	txdata_u8[3] = 200;
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, NULL, txpacket);
-	txpacket[5] = 0;
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-
-
-	/*
-	 * WITH CHECKSUM
-	 * WITH GRANULAR CONTROL
-	 */
-
-	//********** TEST1 **********//
-	//New joint data
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-	jci_tx.GRAN = 1;
-
-	//new data
-	txdata_u8[0] = 0;
-	txdata_u8[1] = 8;
-	txdata_u8[2] = 100;
-	txdata_u8[3] = 200;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-	//********** TEST2 **********//
-	//Continue operation (first time, last operation was 'S')
-	//Need to reuse the same jci_rx for the continue operation.
-	jci_tx.TRANS = 'C';
-
-	//new data
-	txdata_u8[0] = 3;
-	txdata_u8[1] = 136;
-	txdata_u8[2] = 9;
-	txdata_u8[3] = 55;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-	//********** TEST3 **********//
-	//Continue operation (second time, last operation was 'C')
-	//Need to reuse the same jci_rx for the continue operation.
-
-	//new data
-	txdata_u8[0] = 10;
-	txdata_u8[1] = 126;
-	txdata_u8[2] = 68;
-	txdata_u8[3] = 201;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-
-
-	//********** TEST4 **********//
-	//Continue operation (second time, last operation was 'C')
-	//introduce error (checksum should fail)
-	jci_tx.TRANS = 'S';
-	jci_tx.CHECKSUM_EN = 1;
-
-	//new data
-	txdata_u8[0] = 1;
-	txdata_u8[1] = 8;
-	txdata_u8[2] = 100;
-	txdata_u8[3] = 200;
-
-	//reset rx IDs
-	memset(rxid, 0, sizeof(txid)/sizeof(char));
-
-	txpacketsize = jci_buildPacket(&jci_tx, txdata_u8, txid, txpacket);
-	txpacket[5] = 0;
-	rxpacketsize = jci_parsePacket(&jci_rx, rxdata_u8, rxid, txpacket);
-
-}
 
 //function to update the joystick values
 void jci_getPot(void) {
@@ -1105,10 +579,9 @@ void jci_getPot(void) {
 //		txdata_u16[i] = joysticksVal[i];
 //	}
 
-	sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
-			joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
-
-	PRINT(buff);
+//	sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
+//			joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
+//	PRINT(buff);
 
 
 	//stop ADC DMA (not sure if needed)
