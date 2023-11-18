@@ -22,7 +22,38 @@ This project was made with joints of the hand in mind (for arm prosthetic contro
 
 The secret to making this project work is a standard Joint Control Interface (JCI).
 
-TODO
+This interface is implemented using a custom protocol for transferring joint data.
+
+This interface also assumes a full-duplex connection between the two sides of the interface. Otherwise, considerations must be made.
+
+
+### Streamer and Listener
+
+The protocol works on the basis of data senders called Streamers and data receivers called Listeners.
+
+A board can be both a Streamer AND a Listener. For example, a board that drives joints may be listening for data, but it might also be streaming back the current state of its joints based on sensor values.
+
+### C-flow
+
+A C-flow is when a Streamer and a Listener agrees on the header configuration such that the Streamer can start sending C-type packets, which contain no header information but only data. The C comes from the fact that the flow is Continuous.
+
+A C-flow is only interrupted when the Streamer decides to send a new request to enter a new C-flow configuration OR if the Listener notifies the Streamer to stop the C-flow (either because it receives C-flow packet but doesn't know the C-flow configuration OR if it wants to arbitrarily cancel the C-flow).
+
+A C-flow Streamer can send any type of packet to the Listener as long as the packe t is not a request to enter a new C-flow, in which case the current C-flow is canceled.
+
+
+### Packet Types
+
+The protocol has 4 packets types.
+
+#### S type
+
+#### C Type
+
+#### R type
+
+#### A type
+
 
 
 
@@ -60,10 +91,10 @@ The list of contributors
 ### Examples
 
 #### 1-joystick-control
--Theodore Glavas
--Nardo Edward Jean Gilles
--Jacoby Roy
--Yongde Yu
+* Theodore Glavas
+* Nardo Edward Jean Gilles
+* Jacoby Roy
+* Yongde Yu
 
 
 ## Licensing
