@@ -57,6 +57,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BUTTON_INT_Pin GPIO_PIN_13
+#define BUTTON_INT_GPIO_Port GPIOC
+#define BUTTON_INT_EXTI_IRQn EXTI15_10_IRQn
 #define JOY2_Y_Pin GPIO_PIN_2
 #define JOY2_Y_GPIO_Port GPIOC
 #define JOY2_X_Pin GPIO_PIN_3
@@ -65,6 +68,8 @@ void Error_Handler(void);
 #define JOY1_Y_GPIO_Port GPIOC
 #define JOY1_X_Pin GPIO_PIN_5
 #define JOY1_X_GPIO_Port GPIOC
+#define LED_Pin GPIO_PIN_14
+#define LED_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

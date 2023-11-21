@@ -18,6 +18,10 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
+#include "dma.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,11 +47,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
-DMA_HandleTypeDef hdma_adc1;
-
-UART_HandleTypeDef huart4;
-UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
@@ -86,6 +85,7 @@ uint8_t rxpacket[MAX_JCI_PACKET_SIZE] = {0};
 volatile jci_t jci_rx;
 uint8_t rxdata[4] = {0};
 uint8_t rxid[4] = {0};
+volatile uint8_t rxflag = 0;
 
 
 
@@ -113,11 +113,6 @@ char buff[200];
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_UART4_Init(void);
-static void MX_USART1_UART_Init(void);
-static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -162,6 +157,15 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 
+
+  //JCI packets
+  int txpacketsize = 0;
+  uint8_t cflow = 0;
+
+  //Playback recording
+  uint32_t timediff = 0;
+  uint8_t flash_buffer[2*MAX_JCI_PACKET_SIZE] = {0};
+
   	PRINT("CTU init\r\n");
 
 
@@ -169,44 +173,8 @@ int main(void)
     HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
 
 
-	int txpacketsize = 0;
-
-
-
-	char buffer[256];
-	sprintf(buffer, "Packet info:\r\n TRANS: %c\r\n CHECKSUM_EN: %i\r\n GRAN: "
-		"%i\r\n PTYPE: %i\r\n PACKET SIZE: %i\r\n",
-				jci_tx.TRANS,
-				jci_tx.CHECKSUM_EN,
-				jci_tx.GRAN,
-				jci_tx.PTYPE,
-				txpacketsize);
-
-	PRINT(buffer);
-
-
-	//Attempt to have a C-flow
-	while(!jci_tx.CONTACCEPT){
-
-		//poll data (or introduce small delay
-
-		//CLI current data and IDs
-
-		txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
-		if(txpacketsize == 0){
-		  PRINT("ERROR: build packet\r\n");
-		}else{
-		  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
-		}
-
-	}
-
-	PRINT("ENTERING C-flow\r\n");
-
-	//C-flow obtained
-	jci_tx.TRANS = 'C';
-
-
+    //Initial time sampling
+    timediff = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -224,17 +192,28 @@ int main(void)
 	  		  //TODO are we changing mode or just random interrupt?
 	  	  case PLAYBACK:
 	  		  //TODO play back what's in the Flash
+
+
+
 	  	  case REALTIME:
 
-			  //get joystick values
+			  //Joystick control values
 			  jci_getPot();
 
-			  //CLI current data and IDs for joystick values
-			  //TODO cleaner CLI
-			  sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
-						joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
-			  PRINT(buff);
 
+			  //JCI packet
+			  if(jci_tx.CONTACCEPT){
+				  if(cflow == 0){
+					  PRINT("ENTERING C-flow\r\n");
+					  cflow = 1;
+				  }
+				  //C-flow obtained
+				  jci_tx.TRANS = 'C';
+			  }else{
+				  cflow = 0;
+				  //Back to S packets
+				  jci_tx.TRANS = 'S';
+			  }
 			  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
 			  if(txpacketsize == 0){
 				  PRINT("ERROR: build packet\r\n");
@@ -242,9 +221,57 @@ int main(void)
 				  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
 			  }
 
-			  if(recording){
-				  //todo record to Flash with time passed from previous sample
+
+			  //Rewrite over previous TX packet shown using "\r"
+			  PRINT("\r");
+			  ui_showPacket(jci_tx, joysticksVal, txid, "\r");
+
+			  //Check for RX packet
+			  if(rxflag){
+				  rxflag = 0;
+
+				  PRINT("\r\nSDU PACKET RECEIVED:\r\n");
+				  ui_showPacket(jci_rx, rxdata, rxid);
+				  PRINT("\r\n");
+
+				  //Wait for next packet
+				  HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
+			  }
+
+
+			  //CLI current data and IDs for joystick values
+			  //TODO cleaner CLI above
+			  sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
+						joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
+			  PRINT(buff);
+
+
+
+			  //Playback recording
+			  if(recording){ //start or continue recording
+				  //Record to Flash with time passed from previous sample
 				  //to reproduce the delays accurately
+
+				  //Copy packet data
+				  memcpy(flash_buffer, txpacket, txpacketsize);
+
+				  //Copy delay
+				  timediff = HAL_GetTick() - timediff;
+				  memcpy(flash_buffer + txpacketsize, &timediff, 4);
+				  timediff = HAL_GetTick();
+
+				  //Store into Flash
+				  //TODO
+
+				  //TODO check if full, in which case stop recording and indicate
+				  //that it's full
+				  //if(full){
+				  //  recording = ~recording;
+				  //  ui_flashFull()
+				  //}
+
+			  }else{ //stop recording
+
 			  }
 	  }
 
@@ -306,226 +333,19 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_ADC1_Init(void)
-{
-
-  /* USER CODE BEGIN ADC1_Init 0 */
-
-  /* USER CODE END ADC1_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC1_Init 1 */
-
-  /* USER CODE END ADC1_Init 1 */
-
-  /** Common config
-  */
-  hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_8B;
-  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 4;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.OversamplingMode = DISABLE;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_14;
-  sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
-  sConfig.SingleDiff = ADC_SINGLE_ENDED;
-  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-  sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_13;
-  sConfig.Rank = ADC_REGULAR_RANK_2;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_4;
-  sConfig.Rank = ADC_REGULAR_RANK_3;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_3;
-  sConfig.Rank = ADC_REGULAR_RANK_4;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC1_Init 2 */
-
-  /* USER CODE END ADC1_Init 2 */
-
-}
-
-/**
-  * @brief UART4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_UART4_Init(void)
-{
-
-  /* USER CODE BEGIN UART4_Init 0 */
-
-  /* USER CODE END UART4_Init 0 */
-
-  /* USER CODE BEGIN UART4_Init 1 */
-
-  /* USER CODE END UART4_Init 1 */
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 1000000;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart4.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart4, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart4, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN UART4_Init 2 */
-
-  /* USER CODE END UART4_Init 2 */
-
-}
-
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
 
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+
+	if(GPIO_Pin == BUTTON_INT_Pin){
+
+		//Toggle the recording state
+		recording = ~recording;
+
+	}
+
+}
 
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
@@ -546,16 +366,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 			//Parse packet
 			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, addr);
 
-			//TODO CLI show packet received
-			//use flag cause else might have race condition for UART
-
 			//Check for C-flow
 			jci_confirmCFlow(&jci_tx, txid, &jci_rx, rxid);
+
+			//Indicate that packet is received
+			rxflag = 1;
 		}
 
-
-		//Wait for next packet
-		HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
 	}
 
 }
