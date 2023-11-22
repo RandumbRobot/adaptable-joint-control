@@ -277,8 +277,19 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 			//Parse packet
 			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, addr);
 
+			if(rxpacketsize == -2){ //C-flow packet received but not in C-flow
+				jci_tx.TRANS = 'A';
+				jci_tx.CHECKSUM_EN = 0;
+				jci_tx.GRAN = 0;
+				jci_tx.CONT = 0;
+				jci_tx.PSIZE = 0;
 
-			if(rxpacketsize < 0){
+				txpacketsize = jci_buildPacket(&jci_tx, NULL, NULL, txpacket);
+
+				HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
+
+			}
+			else if(rxpacketsize < 0){
 				PRINT("INVALID PACKET RECEIVED\r\n");
 			}
 			else{ //valid packet
@@ -287,7 +298,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 				if(jci_rx.TRANS == 'C'){ //receive C-flow data
 					//NOTE: illegal 'C' packet are handled using the
 
-					PRINT(buffer);
+					//PRINT(buffer);
 					for(int i = 0 ; i < jci_rx.PSIZE ; i++){
 						sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
 						PRINT(buffer);
@@ -363,11 +374,12 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 						new_data = true; //flag main process
 					}
 				}
+				for(int i = 0 ; i < jci_rx.PSIZE ; i++){ //print is valid packet received
+					sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
+					PRINT(buffer);
+				}
 			}
-			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
-				sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
-				PRINT(buffer);
-			}
+
 		}
 
 		//Update servo positions if new data is received
