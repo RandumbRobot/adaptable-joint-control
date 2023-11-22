@@ -733,5 +733,13 @@ int jci_confirmCFlow(jci_t* jci_tx, char* tx_id, jci_t* jci_rx, char* rx_id){
         }
     }
 
+    if(res < 1){
+        //Disable C-flow for TX and RX
+    	jci_tx->CONTACCEPT = 0;
+    	jci_rx->CONTACCEPT = 0;
+    	res = 0;
+    }
+
+
     return res;
 }

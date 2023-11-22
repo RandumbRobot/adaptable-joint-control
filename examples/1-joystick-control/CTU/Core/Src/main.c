@@ -242,7 +242,7 @@ int main(void)
 			  //CLI current data and IDs for joystick values
 			  //TODO cleaner CLI above
 			  sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
-						joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
+			  	joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
 			  PRINT(buff);
 
 
@@ -273,8 +273,9 @@ int main(void)
 			  }else{ //stop recording
 
 			  }
-	  }
 
+			  HAL_Delay(10);
+	  }
 
     /* USER CODE END WHILE */
 
