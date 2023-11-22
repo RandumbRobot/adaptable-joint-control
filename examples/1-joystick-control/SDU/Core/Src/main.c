@@ -177,19 +177,29 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	PRINT("Entering Sleep\r\n");
+	HAL_SuspendTick();
+	HAL_PWR_EnableSleepOnExit();
+	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON,PWR_SLEEPENTRY_WFI);
 
-	//wait for new data
-	while(!new_data){
-		//wait
-	}
-	new_data = false;
+	//This code should not be reached
+	HAL_ResumeTick();
+	PRINT("ERROR: Exited Sleep in MAIN\r\n");
 
-	//Loop through servos and update values
-	for(int i=0;i<SERVO_COUNT;i++){
-		if(__HAL_TIM_GET_COMPARE(tim_ids[i],tim_channels[i]) != servo_positions[i]){
-			__HAL_TIM_SET_COMPARE(tim_ids[i],tim_channels[i],servo_positions[i]);
-		}
-	}
+	//	while(!new_data){}
+
+
+
+//	if(new_data){
+//		new_data = false;
+//		//Loop through servos and update values
+//		for(int i=0;i<SERVO_COUNT;i++){
+//			if(__HAL_TIM_GET_COMPARE(tim_ids[i],tim_channels[i]) != servo_positions[i]){
+//				__HAL_TIM_SET_COMPARE(tim_ids[i],tim_channels[i],servo_positions[i]);
+//			}
+//		}
+//	}
+
   }
   /* USER CODE END 3 */
 }
@@ -267,6 +277,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 			//Parse packet
 			rxpacketsize = jci_parsePacket(&jci_rx, rxdata, rxid, addr);
 
+
 			if(rxpacketsize < 0){
 				PRINT("INVALID PACKET RECEIVED\r\n");
 			}
@@ -333,15 +344,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 
 					txpacketsize = jci_buildPacket(&jci_tx, NULL, txid, txpacket);
 
+					HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
 					//Check for C-flow
 					jci_confirmCFlow(&jci_tx, txid, &jci_rx, rxid);
 
 				}
 				else if(jci_rx.TRANS == 'S'){ //check if normal data
-					for(int i = 0 ; i < jci_rx.PSIZE ; i++){
-						sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
-						PRINT(buffer);
-					}
+
 					if(!new_data){
 						//Set servo values
 						for(int i = 0 ; i < jci_rx.PSIZE ; i++){
@@ -355,8 +364,21 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 					}
 				}
 			}
+			for(int i = 0 ; i < jci_rx.PSIZE ; i++){
+				sprintf(buffer, "ID%i: %c    DATA: %i\r\n", i, rxid[i], rxdata[i]);
+				PRINT(buffer);
+			}
 		}
 
+		//Update servo positions if new data is received
+		if(new_data){
+			for(int i=0;i<SERVO_COUNT;i++){
+				if(__HAL_TIM_GET_COMPARE(tim_ids[i],tim_channels[i]) != servo_positions[i]){
+					__HAL_TIM_SET_COMPARE(tim_ids[i],tim_channels[i],servo_positions[i]);
+				}
+			}
+			new_data = false;
+		}
 
 		//Wait for next packet
 		HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
