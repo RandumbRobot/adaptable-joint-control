@@ -38,6 +38,7 @@
 /* USER CODE BEGIN PD */
 
 #define PRINT(s) HAL_UART_Transmit(&huart1, s, strlen(s), HAL_MAX_DELAY)
+#define UIPRINT(s) HAL_UART_Transmit_DMA(&huart1, s, strlen(s))
 
 /* USER CODE END PD */
 
@@ -93,12 +94,13 @@ volatile uint8_t rxflag = 0;
 /****** State Logic ******/
 typedef enum{
 	STOPPED,
-	PLAYBACK,
-	REALTIME
+	REALTIME,
+	PLAYBACK
 }state_e;
 
-volatile uint8_t state = STOPPED;	//state flag
+volatile uint8_t state = REALTIME;	//state flag
 volatile uint8_t recording = 0; 	//flag to indicate if recording
+volatile uint8_t full = 0;
 
 
 /****** Joystick ******/
@@ -108,6 +110,13 @@ volatile uint8_t recording = 0; 	//flag to indicate if recording
 volatile uint8_t joysticksVal[4];
 volatile uint8_t conversionFlag = 0; //flag wait for conversion
 char buff[200];
+
+
+
+/****** UI ******/
+void ui_printTxData(jci_t jci, uint8_t* data, uint8_t* ids, uint8_t state, uint8_t rec);
+#define MAX_UI_DELAY 100
+uint32_t ui_timediff;
 
 /* USER CODE END PV */
 
@@ -166,7 +175,7 @@ int main(void)
   uint32_t timediff = 0;
   uint8_t flash_buffer[2*MAX_JCI_PACKET_SIZE] = {0};
 
-  	PRINT("CTU init\r\n");
+  	PRINT("\r\n/***** CTU init *****/\r\n");
 
 
     //Start RX
@@ -183,15 +192,31 @@ int main(void)
   while (1)
   {
 
-	//TODO CLI and state logic (stopped, playback, real-time)
 
+	  /***** STATE CONTROL AND DATA ACQUISITION *****/
 	  switch (state)
 	  {
 	  	  case STOPPED:
-	  			//_WFI(); //TODO for interrupt/event (low-power)
-	  		  //TODO are we changing mode or just random interrupt?
+
+	  		  UIPRINT("\rSTOPPED                                                                       ");
+	  		  //Put to sleep
+	  		  HAL_SuspendTick();
+	  		  HAL_PWR_EnableSleepOnExit();
+	  		  HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON,PWR_SLEEPENTRY_WFI);
+
+	  		  //Only comes out to main if change of state
+	  		  HAL_ResumeTick();
+
+	  		  //Reset time difference to current tick
+	  		  timediff = HAL_GetTick();
+	  		  break;
+
 	  	  case PLAYBACK:
 	  		  //TODO play back what's in the Flash
+
+	  		  //Read back joystick data
+
+	  		  break;
 
 
 
@@ -200,81 +225,83 @@ int main(void)
 			  //Joystick control values
 			  jci_getPot();
 
-
-			  //JCI packet
-			  if(jci_tx.CONTACCEPT){
-				  if(cflow == 0){
-					  PRINT("ENTERING C-flow\r\n");
-					  cflow = 1;
-				  }
-				  //C-flow obtained
-				  jci_tx.TRANS = 'C';
-			  }else{
-				  cflow = 0;
-				  //Back to S packets
-				  jci_tx.TRANS = 'S';
-			  }
-			  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
-			  if(txpacketsize == 0){
-				  PRINT("ERROR: build packet\r\n");
-			  }else{
-				  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
-			  }
+			  break;
+	  }
 
 
-			  //Rewrite over previous TX packet shown using "\r"
-			  PRINT("\r");
-			  ui_showPacket(jci_tx, joysticksVal, txid, "\r");
+	  /***** JCI TX/RX *****/
+	  //JCI tx packet
+	  if(jci_tx.CONTACCEPT){
+		  if(cflow == 0){
+			  PRINT("\r\nENTERING C-flow\r\n");
+			  cflow = 1;
+		  }
+		  //C-flow obtained
+		  jci_tx.TRANS = 'C';
+	  }else{
+		  cflow = 0;
+		  //Back to S packets
+		  jci_tx.TRANS = 'S';
+	  }
+	  txpacketsize = jci_buildPacket(&jci_tx, joysticksVal, txid, txpacket);
+	  if(txpacketsize == 0){
+		  PRINT("\r\nERROR: build packet\r\n");
+	  }else{
+		  HAL_UART_Transmit(&huart4, txpacket, txpacketsize, HAL_MAX_DELAY);
+	  }
 
-			  //Check for RX packet
-			  if(rxflag){
-				  rxflag = 0;
-
-				  PRINT("\r\nSDU PACKET RECEIVED:\r\n");
-				  ui_showPacket(jci_rx, rxdata, rxid);
-				  PRINT("\r\n");
-
-				  //Wait for next packet
-				  HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
-			  }
+//	  //Check for JCI RX packet
+//	  if(rxflag){
+//		  rxflag = 0;
+//
+//		  ui_printRxData(jci_rx, rxdata, rxid);
+//
+//		  //Wait for next packet
+//		  HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
+//	  }
 
 
-			  //CLI current data and IDs for joystick values
-			  //TODO cleaner CLI above
-			  sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
-			  	joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
-			  PRINT(buff);
+	  /***** RECORDING *****/
+	  //Playback recording
+	  if(recording){ //start or continue recording
+		  //Record to Flash with time passed from previous sample
+		  //to reproduce the delays accurately
+
+		  //Copy pot data
+		  memcpy(flash_buffer, joysticksVal, 4);
+
+		  //Copy delay
+		  timediff = HAL_GetTick() - timediff;
+		  memcpy(flash_buffer + 4, &timediff, 4);
+		  timediff = HAL_GetTick();
+
+		  //Store into Flash
+		  //TODO
+
+		  //Check if full, in which case stop recording and indicate
+		  //that it's full
+		  if(full == 1){
+		    recording = 2;
+		  //  ui_flashFull()
+		  }
+
+	  }else{ //stop recording
+
+		  //Reset the recording pointer
+		  //TODO
+
+	  }
+
+	  HAL_Delay(10);
 
 
+	  /***** UI *****/
+	  if((HAL_GetTick() - ui_timediff) > MAX_UI_DELAY){
+		  ui_timediff = HAL_GetTick();
 
-			  //Playback recording
-			  if(recording){ //start or continue recording
-				  //Record to Flash with time passed from previous sample
-				  //to reproduce the delays accurately
+		  //CLI current data and IDs for joystick values
+		  ui_printTxData(jci_tx, joysticksVal, txid, state, recording);
 
-				  //Copy packet data
-				  memcpy(flash_buffer, txpacket, txpacketsize);
-
-				  //Copy delay
-				  timediff = HAL_GetTick() - timediff;
-				  memcpy(flash_buffer + txpacketsize, &timediff, 4);
-				  timediff = HAL_GetTick();
-
-				  //Store into Flash
-				  //TODO
-
-				  //TODO check if full, in which case stop recording and indicate
-				  //that it's full
-				  //if(full){
-				  //  recording = ~recording;
-				  //  ui_flashFull()
-				  //}
-
-			  }else{ //stop recording
-
-			  }
-
-			  HAL_Delay(10);
 	  }
 
     /* USER CODE END WHILE */
@@ -337,12 +364,41 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 
 
+uint32_t but_debounce = 0;
+uint32_t joy_debounce = 0;
+#define MIN_DEBOUNCE_TIME 100
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 	if(GPIO_Pin == BUTTON_INT_Pin){
 
-		//Toggle the recording state
-		recording = ~recording;
+		if(((HAL_GetTick() - but_debounce) > MIN_DEBOUNCE_TIME) || (state == STOPPED)){
+
+			but_debounce = HAL_GetTick();
+
+			//State change
+			state++;
+			if(state > PLAYBACK){
+				state = STOPPED;
+			}
+
+			//Wake up to new state
+			HAL_PWR_DisableSleepOnExit();
+
+		}
+
+	}
+
+	if(GPIO_Pin == JOYSTICK_INT_Pin){
+
+		if((HAL_GetTick() - joy_debounce) > MIN_DEBOUNCE_TIME){
+
+			joy_debounce = HAL_GetTick();
+
+			//Toggle the recording state
+			recording = !recording;
+
+		}
 
 	}
 
@@ -418,6 +474,111 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 	conversionFlag = 1;
 	}
 }
+
+
+
+
+
+void ui_printTxData(jci_t jci, uint8_t* data, uint8_t* ids, uint8_t state, uint8_t rec) {
+    char buffer[256];
+    int offset = 0;
+
+
+    if(state == STOPPED){
+    	return;
+    }
+
+
+    // Print carriage return to overwrite the old output
+    offset += sprintf(buffer + offset, "\r");
+
+
+    // Loop through each ID and data pair
+    for (int i = 0; i < jci.PSIZE; i++) {
+      offset += sprintf(buffer + offset, "ID");
+        offset += sprintf(buffer + offset, "<%c>: ", ids[i]);
+
+        // Check PTYPE to determine data type
+        if (jci.PTYPE) {
+            // uint16_t
+            uint16_t* uint16_data = (uint16_t*)&data[i * 2];
+            offset += sprintf(buffer + offset, "%03d", *uint16_data);
+        } else {
+            // uint8_t
+            offset += sprintf(buffer + offset, "%03d", data[i]);
+        }
+
+        // Add a separator if it's not the last pair
+        if (i < jci.PSIZE - 1) {
+            offset += sprintf(buffer + offset, "   ");
+        }
+    }
+
+    // Print the state
+    offset += sprintf(buffer + offset, "   State: ");
+
+    switch (state) {
+        case PLAYBACK:
+            offset += sprintf(buffer + offset, "PLAYBACK");
+            break;
+        case REALTIME:
+            offset += sprintf(buffer + offset, "REALTIME");
+
+            if(rec == 2){
+            	offset += sprintf(buffer + offset, "\FULL");
+            }
+            else if(rec == 1){
+            	offset += sprintf(buffer + offset, "\tREC ");
+            }else{
+            	offset += sprintf(buffer + offset, "\t    ");
+            }
+            break;
+        default:
+            offset += sprintf(buffer + offset, "UNKNOWN");
+            break;
+    }
+
+    // Print the complete string
+    UIPRINT(buffer);
+}
+
+
+
+
+void ui_printRxData(jci_t jci, uint8_t* data, uint8_t* ids) {
+    char buffer[256];
+    int offset = 0;
+
+    offset += sprintf(buffer + offset, "\r\nPACKET RECEIVED: ");
+
+
+    // Loop through each ID and data pair
+    for (int i = 0; i < jci.PSIZE; i++) {
+      offset += sprintf(buffer + offset, "ID");
+        offset += sprintf(buffer + offset, "<%c>: ", ids[i]);
+
+        // Check PTYPE to determine data type
+        if (jci.PTYPE) {
+            // uint16_t
+            uint16_t* uint16_data = (uint16_t*)&data[i * 2];
+            offset += sprintf(buffer + offset, "%03d", *uint16_data);
+        } else {
+            // uint8_t
+            offset += sprintf(buffer + offset, "%03d", data[i]);
+        }
+
+        // Add a separator if it's not the last pair
+        if (i < jci.PSIZE - 1) {
+            offset += sprintf(buffer + offset, "   ");
+        }
+    }
+
+    offset += sprintf(buffer + offset, "\r\n");
+
+    // Print the complete string
+    UIPRINT(buffer);
+}
+
 
 /* USER CODE END 4 */
 

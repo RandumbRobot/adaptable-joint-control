@@ -60,6 +60,9 @@ void Error_Handler(void);
 #define BUTTON_INT_Pin GPIO_PIN_13
 #define BUTTON_INT_GPIO_Port GPIOC
 #define BUTTON_INT_EXTI_IRQn EXTI15_10_IRQn
+#define JOYSTICK_INT_Pin GPIO_PIN_1
+#define JOYSTICK_INT_GPIO_Port GPIOC
+#define JOYSTICK_INT_EXTI_IRQn EXTI1_IRQn
 #define JOY2_Y_Pin GPIO_PIN_2
 #define JOY2_Y_GPIO_Port GPIOC
 #define JOY2_X_Pin GPIO_PIN_3

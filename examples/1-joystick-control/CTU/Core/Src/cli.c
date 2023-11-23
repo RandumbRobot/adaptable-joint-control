@@ -70,5 +70,5 @@ void ui_showPacket(jci_t header, uint8_t* data, uint8_t* id_list){
 				txpacketsize);
 	*/
 
-	PRINT(buffer);
+	//PRINT(buffer);
 }
