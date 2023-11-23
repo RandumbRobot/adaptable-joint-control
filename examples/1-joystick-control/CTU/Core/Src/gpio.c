@@ -33,6 +33,12 @@
 /* USER CODE END 1 */
 
 /** Configure pins
+     PE10   ------> OCTOSPIM_P1_CLK
+     PE11   ------> OCTOSPIM_P1_NCS
+     PE12   ------> OCTOSPIM_P1_IO0
+     PE13   ------> OCTOSPIM_P1_IO1
+     PE14   ------> OCTOSPIM_P1_IO2
+     PE15   ------> OCTOSPIM_P1_IO3
 */
 void MX_GPIO_Init(void)
 {
@@ -42,6 +48,7 @@ void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
@@ -58,6 +65,16 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(JOYSTICK_INT_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PE10 PE11 PE12 PE13
+                           PE14 PE15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13
+                          |GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF10_OCTOSPIM_P1;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PtPin */
   GPIO_InitStruct.Pin = LED_Pin;

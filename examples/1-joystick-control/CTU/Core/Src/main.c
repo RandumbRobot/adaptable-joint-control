@@ -20,6 +20,7 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "octospi.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -27,6 +28,9 @@
 /* USER CODE BEGIN Includes */
 
 #include "jci.h"
+
+#include "stm32l4s5i_iot01_qspi.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -113,6 +117,14 @@ char buff[200];
 
 
 
+/****** Flash ******/
+
+#define FLASH_BLOCK_SIZE 1280000
+volatile uint8_t* flash_write_ptr = 0;
+volatile uint8_t* flash_read_ptr = 0;
+
+
+
 /****** UI ******/
 void ui_printTxData(jci_t jci, uint8_t* data, uint8_t* ids, uint8_t state, uint8_t rec);
 #define MAX_UI_DELAY 100
@@ -163,6 +175,7 @@ int main(void)
   MX_UART4_Init();
   MX_USART1_UART_Init();
   MX_ADC1_Init();
+  MX_OCTOSPI1_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -209,13 +222,35 @@ int main(void)
 
 	  		  //Reset time difference to current tick
 	  		  timediff = HAL_GetTick();
+
+	  		  //Reset recording state
+	  		  recording = 0;
+	  		  full = 0;
+	  		  flash_write_ptr = 0;
+
 	  		  break;
 
 	  	  case PLAYBACK:
-	  		  //TODO play back what's in the Flash
 
-	  		  //Read back joystick data
+	  		  if(flash_read_ptr < flash_write_ptr){ //if not done reading
 
+	  			//Read back joystick data
+	  			BSP_QSPI_Read(flash_buffer, flash_read_ptr, 8);
+
+	  			//Update flash pointer
+	  			flash_read_ptr += 8;
+
+	  			//Copy pot data
+	  			memcpy(joysticksVal, flash_buffer, 4);
+
+	  			//Copy delay
+	  			memcpy(&timediff, flash_buffer + 4, 4);
+
+
+	  		  }else{
+	  			  //Playback done
+	  			  recording = 2;
+	  		  }
 	  		  break;
 
 
@@ -263,7 +298,7 @@ int main(void)
 
 	  /***** RECORDING *****/
 	  //Playback recording
-	  if(recording){ //start or continue recording
+	  if(recording == 1){ //start or continue recording
 		  //Record to Flash with time passed from previous sample
 		  //to reproduce the delays accurately
 
@@ -275,20 +310,19 @@ int main(void)
 		  memcpy(flash_buffer + 4, &timediff, 4);
 		  timediff = HAL_GetTick();
 
-		  //Store into Flash
-		  //TODO
-
 		  //Check if full, in which case stop recording and indicate
 		  //that it's full
-		  if(full == 1){
-		    recording = 2;
-		  //  ui_flashFull()
+
+		  //Store into Flash
+		  BSP_QSPI_Write(flash_buffer, flash_write_ptr, 8);
+
+		  //Update flash pointer
+		  flash_write_ptr += 8;
+
+		  if(flash_write_ptr > FLASH_BLOCK_SIZE){
+			  full = 1;
+			  recording = 2;
 		  }
-
-	  }else{ //stop recording
-
-		  //Reset the recording pointer
-		  //TODO
 
 	  }
 
@@ -382,6 +416,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 				state = STOPPED;
 			}
 
+			if(state == PLAYBACK){
+				//Reset Flash read logic
+				full = 0;
+				flash_read_ptr = 0;
+				recording = 0;
+
+			}
+
 			//Wake up to new state
 			HAL_PWR_DisableSleepOnExit();
 
@@ -389,7 +431,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 	}
 
-	if(GPIO_Pin == JOYSTICK_INT_Pin){
+	//Can only record if realtime
+	if(GPIO_Pin == JOYSTICK_INT_Pin && (state == REALTIME)){
 
 		if((HAL_GetTick() - joy_debounce) > MIN_DEBOUNCE_TIME){
 
@@ -397,6 +440,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 			//Toggle the recording state
 			recording = !recording;
+
+			//If recording, reset Flash state
+			if(recording == 1){
+
+				//Erase Flash Block (only using first one)
+				BSP_QSPI_Erase_Block(0);
+
+				//Reset recording logic
+				full = 0;
+				flash_write_ptr = 0;
+			}
 
 		}
 
@@ -478,19 +532,46 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
 
 
+char buffer[256] = {0};
 
 void ui_printTxData(jci_t jci, uint8_t* data, uint8_t* ids, uint8_t state, uint8_t rec) {
-    char buffer[256];
     int offset = 0;
 
-
-    if(state == STOPPED){
-    	return;
-    }
 
 
     // Print carriage return to overwrite the old output
     offset += sprintf(buffer + offset, "\r");
+
+
+    //Print the state
+    switch (state) {
+        case PLAYBACK:
+            offset += sprintf(buffer + offset, "PLAYBACK");
+
+            if(rec == 2){
+            	offset += sprintf(buffer + offset, "\t DONE                                                       ");
+            	UIPRINT(buffer);
+            	return;
+            }
+            break;
+        case REALTIME:
+            offset += sprintf(buffer + offset, "REALTIME");
+
+            if(rec == 2){
+            	offset += sprintf(buffer + offset, "\t FULL ");
+            }
+            else if(rec == 1){
+            	offset += sprintf(buffer + offset, "\t REC  ");
+            }else{
+            	offset += sprintf(buffer + offset, "\t     ");
+            }
+            break;
+        case STOPPED:
+        	return;
+        default:
+            offset += sprintf(buffer + offset, "UNKNOWN");
+            break;
+    }
 
 
     // Loop through each ID and data pair
@@ -512,30 +593,6 @@ void ui_printTxData(jci_t jci, uint8_t* data, uint8_t* ids, uint8_t state, uint8
         if (i < jci.PSIZE - 1) {
             offset += sprintf(buffer + offset, "   ");
         }
-    }
-
-    // Print the state
-    offset += sprintf(buffer + offset, "   State: ");
-
-    switch (state) {
-        case PLAYBACK:
-            offset += sprintf(buffer + offset, "PLAYBACK");
-            break;
-        case REALTIME:
-            offset += sprintf(buffer + offset, "REALTIME");
-
-            if(rec == 2){
-            	offset += sprintf(buffer + offset, "\FULL");
-            }
-            else if(rec == 1){
-            	offset += sprintf(buffer + offset, "\tREC ");
-            }else{
-            	offset += sprintf(buffer + offset, "\t    ");
-            }
-            break;
-        default:
-            offset += sprintf(buffer + offset, "UNKNOWN");
-            break;
     }
 
     // Print the complete string
