@@ -119,7 +119,7 @@ char buff[200];
 
 /****** Flash ******/
 
-#define FLASH_BLOCK_SIZE 64000 //half of a flash block size
+#define FLASH_BLOCK_SIZE 128000 // flash block size
 volatile uint8_t* flash_write_ptr = 0;
 volatile uint8_t* flash_read_ptr = 0;
 
@@ -322,7 +322,7 @@ int main(void)
 		  if(flash_write_ptr > FLASH_BLOCK_SIZE){
 			  full = 1;
 			  recording = 2;
-			  UIPRINT("\r\n/***** Flash Full - Back to Normal Real Time *****/\r\n");
+			  UIPRINT("\r\n/***** Flash Full - Back to RealTime *****/\r\n");
 		  }
 
 	  }
@@ -418,11 +418,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 			}
 
 			if(state == PLAYBACK){
+				UIPRINT("\r\n/***** Playback Mode *****/\r\n");
 				//Reset Flash read logic
 				full = 0;
 				flash_read_ptr = 0;
 				recording = 0;
 
+			}
+
+			if (state == REALTIME){
+				UIPRINT("\r\n/***** RealTime Mode *****/\r\n");
 			}
 
 			//Wake up to new state
@@ -445,13 +450,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 			//If recording, reset Flash state
 			if(recording == 1){
 
-				UIPRINT("\r\n/***** Recording Mode *****/\r\n");
+				//UIPRINT("\r\n/***** Recording Mode *****/\r\n");
 				//Erase Flash Block (only using first one)
 				BSP_QSPI_Erase_Block(0);
 
 				//Reset recording logic
 				full = 0;
 				flash_write_ptr = 0;
+			}
+
+			//If exiting recording, message to state it
+			if(recording == 0){
+
+				UIPRINT("\r\n/***** Recording Stopped - Back to RealTime *****/\r\n");
+
 			}
 
 		}
