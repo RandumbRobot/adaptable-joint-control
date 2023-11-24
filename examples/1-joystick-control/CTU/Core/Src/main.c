@@ -119,7 +119,7 @@ char buff[200];
 
 /****** Flash ******/
 
-#define FLASH_BLOCK_SIZE 1280000
+#define FLASH_BLOCK_SIZE 128000
 volatile uint8_t* flash_write_ptr = 0;
 volatile uint8_t* flash_read_ptr = 0;
 
