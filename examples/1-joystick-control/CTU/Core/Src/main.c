@@ -119,7 +119,7 @@ char buff[200];
 
 /****** Flash ******/
 
-#define FLASH_BLOCK_SIZE 128000
+#define FLASH_BLOCK_SIZE 64000 //half of a flash block size
 volatile uint8_t* flash_write_ptr = 0;
 volatile uint8_t* flash_read_ptr = 0;
 
@@ -177,7 +177,7 @@ int main(void)
   MX_ADC1_Init();
   MX_OCTOSPI1_Init();
   /* USER CODE BEGIN 2 */
-
+  BSP_QSPI_Init();
 
 
   //JCI packets
@@ -322,6 +322,7 @@ int main(void)
 		  if(flash_write_ptr > FLASH_BLOCK_SIZE){
 			  full = 1;
 			  recording = 2;
+			  UIPRINT("\r\n/***** Flash Full - Back to Normal Real Time *****/\r\n");
 		  }
 
 	  }
@@ -444,6 +445,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 			//If recording, reset Flash state
 			if(recording == 1){
 
+				UIPRINT("\r\n/***** Recording Mode *****/\r\n");
 				//Erase Flash Block (only using first one)
 				BSP_QSPI_Erase_Block(0);
 
@@ -507,18 +509,6 @@ void jci_getPot(void) {
 	//clear flag
 	conversionFlag = 0;
 
-	//update values of txdata TODO
-//	for (int i = 0; i < 4; i++) {
-//		txdata_u16[i] = joysticksVal[i];
-//	}
-
-//	sprintf(buff, "Value of Joystick 1 - X: %d\r\nValue of Joystick 1 - Y: %d\r\nValue of Joystick 2 - X: %d\r\nValue of Joystick 2 - Y: %d\r\n",
-//			joysticksVal[0],joysticksVal[1],joysticksVal[2],joysticksVal[3]);
-//	PRINT(buff);
-
-
-	//stop ADC DMA (not sure if needed)
-	//HAL_ADC_Stop_DMA(&hadc1);
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
