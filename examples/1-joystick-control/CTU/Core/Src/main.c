@@ -508,6 +508,9 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 			rxflag = 1;
 		}
 
+		//RX again
+		HAL_UARTEx_ReceiveToIdle_IT(&huart4, rxpacket, MAX_JCI_PACKET_SIZE);
+
 	}
 
 }
