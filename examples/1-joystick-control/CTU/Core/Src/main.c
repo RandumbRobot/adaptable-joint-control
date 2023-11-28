@@ -188,6 +188,10 @@ int main(void)
   uint32_t timediff = 0;
   uint8_t flash_buffer[2*MAX_JCI_PACKET_SIZE] = {0};
 
+  //Delay control
+	#define MAX_LOOP_DELAY 20 //loop delay in ms
+  	uint32_t loop_delay = 0;
+
   	PRINT("\r\n/***** CTU init *****/\r\n");
 
 
@@ -197,6 +201,7 @@ int main(void)
 
     //Initial time sampling
     timediff = HAL_GetTick();
+    loop_delay = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -327,7 +332,7 @@ int main(void)
 
 	  }
 
-	  HAL_Delay(10);
+	  HAL_Delay(20);
 
 
 	  /***** UI *****/
@@ -338,6 +343,11 @@ int main(void)
 		  ui_printTxData(jci_tx, joysticksVal, txid, state, recording);
 
 	  }
+
+
+	  /***** LOOP DELAY *****/
+	  while((HAL_GetTick() - loop_delay) < MAX_LOOP_DELAY){}
+	  loop_delay = HAL_GetTick();
 
     /* USER CODE END WHILE */
 
